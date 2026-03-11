@@ -1,0 +1,74 @@
+arima:
+  alpha: 0.05
+  error_action: ignore
+  information_criterion: aic
+  m: 7
+  max_D: 1
+  max_P: 2
+  max_Q: 2
+  max_d: 2
+  max_order: 6
+  max_p: 5
+  max_q: 5
+  seasonal: true
+  seasonal_test: ocsb
+  start_P: 0
+  start_Q: 0
+  start_p: 0
+  start_q: 0
+  stepwise: true
+  suppress_warnings: true
+  test: kpss
+  trace: false
+data:
+  date_column: Timestamp
+  missing_threshold: 0.3
+  outlier_threshold: 3.0
+  pollutant_columns:
+  - PM2.5
+  - PM10
+  - 'NO'
+  - NO2
+  - NOx
+  - NH3
+  - CO
+  - SO2
+  - O3
+  - Benzene
+  - Toluene
+  - Xylene
+  target_column: AQI
+forecasting:
+  arima_weight: 0.3
+  confidence_level: 0.95
+  default_horizon: 14
+  prophet_weight: 0.7
+logging:
+  file: air_pollution_system.log
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+performance:
+  cache_results: true
+  enable_monitoring: true
+  memory_optimization: true
+  parallel_processing: false
+prophet:
+  changepoint_prior_scale: 0.1
+  daily_seasonality: false
+  holidays_prior_scale: 10.0
+  interval_width: 0.8
+  mcmc_samples: 0
+  seasonality_mode: multiplicative
+  seasonality_prior_scale: 10.0
+  uncertainty_samples: 1000
+  weekly_seasonality: true
+  yearly_seasonality: true
+visualization:
+  bbox_inches: tight
+  color_palette: husl
+  dpi: 100
+  figure_size:
+  - 16
+  - 12
+  save_format: png
+  style: seaborn-v0_8

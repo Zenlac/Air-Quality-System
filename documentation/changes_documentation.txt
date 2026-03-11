@@ -1,0 +1,188 @@
+AIR POLLUTION SYSTEM - CHANGES DOCUMENTATION
+==============================================
+Created: February 19, 2026
+Last Updated: February 19, 2026
+
+FOLDER OVERVIEW:
+================
+Location: d:/Muffim Files/Commission/Air Pollution System
+Main File: aqicolab.ipynb (Jupyter Notebook - 1,969,263 bytes)
+
+PROJECT DESCRIPTION:
+==================
+Air Quality Index (AQI) Analysis and Forecasting System for Baguio City
+- Processes air pollution data from EMB-CEPMO dataset
+- Calculates AQI using US EPA standards
+- Provides forecasting using Prophet time series model
+- Generates visualizations and reports
+
+CURRENT FILES IN FOLDER:
+========================
+1. aqicolab.ipynb - Main analysis notebook
+2. EMB-CEPMOo1 year.csv - Input dataset (referenced but not visible in current folder)
+3. aqibucketimage.png - AQI bucket classification image (referenced)
+4. predicted_aqi_forecast.csv - Generated forecast output (referenced)
+5. updated_air_quality_data.csv - Processed historical data (referenced)
+
+NOTEBOOK CONTENTS (aqicolab.ipynb):
+===================================
+
+CELL 0: Import Libraries
+- numpy, pandas, matplotlib, seaborn
+- warnings configuration
+
+CELL 1: Data Loading
+- Loads EMB-CEPMOo1 year.csv dataset
+- 24,344 rows of air quality data for Baguio City (2023)
+- Columns: City, Date, PM2.5, PM10, NO, NO2, NOx, NH3, CO, SO2, O3, Benzene, Toluene, Xylene, AQI, AQI_Bucket
+
+CELL 2: AQI Sub-Index Calculations
+- Implements US EPA AQI calculation methods for:
+  * PM10 Sub-Index
+  * PM2.5 Sub-Index  
+  * SO2 Sub-Index (1-hour average)
+  * NOx Sub-Index (1-hour average)
+  * NH3 Sub-Index (no official US EPA value)
+  * CO Sub-Index (8-hour average)
+  * O3 Sub-Index (8-hour average)
+- Adds sub-index columns to dataframe
+
+CELL 3: AQI Calculation
+- Calculates final AQI as maximum of all pollutant sub-indices
+- Fills NaN values in AQI column
+
+CELL 4: AQI Bucket Classification
+- Categorizes AQI values into:
+  * Good (≤50)
+  * Moderate (51-100)
+  * Unhealthy for Sensitive Groups (101-150)
+  * Unhealthy (151-200)
+  * Very Unhealthy (201-300)
+  * Hazardous (>300)
+
+CELL 5: AQI Bucket Visualization
+- Displays AQI bucket classification image
+
+CELL 6: Prophet Model Setup
+- Prepares data for time series forecasting
+- Uses Prophet library with custom parameters:
+  * holidays_prior_scale=0
+  * seasonality_prior_scale=20
+  * n_changepoints=50
+
+CELL 7: Future Dataframe Creation
+- Creates 31-day forecast period
+
+CELL 8: Forecast Prediction
+- Generates AQI predictions with confidence intervals
+
+CELL 9: Model Validation
+- Performs cross-validation
+- Calculates accuracy: 86.67%
+
+CELL 10: Forecast Visualization
+- Creates interactive plotly visualization of predictions
+
+CELL 11: Component Analysis
+- Shows trend, seasonal components
+
+CELL 12: Export Predicted Data
+- Saves forecast to 'predicted_aqi_forecast.csv'
+
+CELL 13: Export Historical Data
+- Saves processed data to 'updated_air_quality_data.csv'
+
+CELL 14: Package Installation
+- Installs plotly and pandas
+
+CELL 15: Historical Data Visualization
+- Creates scatter plot of AQI over time with color-coded buckets
+
+CELL 16: Trend Visualization
+- Creates line plot of predicted AQI trend
+
+KEY FUNCTIONALITY:
+==================
+1. Data Processing: Loads and processes raw air quality data
+2. AQI Calculation: Implements US EPA standards for multiple pollutants
+3. Classification: Categorizes air quality into health-based buckets
+4. Forecasting: Uses Prophet for 31-day AQI predictions
+5. Visualization: Creates interactive charts and graphs
+6. Export: Saves processed data and forecasts to CSV files
+
+DEPENDENCIES:
+=============
+- pandas
+- numpy
+- matplotlib
+- seaborn
+- plotly
+- prophet
+- PIL (Pillow)
+
+OUTPUT FILES GENERATED:
+======================
+1. predicted_aqi_forecast.csv - 31-day AQI forecast with confidence intervals
+2. updated_air_quality_data.csv - Processed historical data with calculated AQI values
+
+MODEL PERFORMANCE:
+=================
+- Cross-validation accuracy: 86.67%
+- Forecast horizon: 31 days
+- Training period: Full 2023 dataset
+
+DATA SOURCE:
+============
+EMB-CEPMO (Environmental Management Bureau - Calabarzon Environmental Monitoring Office)
+- Location: Baguio City
+- Time Period: 2023
+- Pollutants Monitored: PM2.5, PM10, NO, NO2, NOx, NH3, CO, SO2, O3, Benzene, Toluene, Xylene
+
+CHANGE LOG:
+===========
+2026-02-19: Initial documentation created
+- No previous versions detected
+- Current state represents complete analysis pipeline
+
+# Air Pollution System Changes Log
+# Initial file created: 2025-06-17
+# Optimization completed: 2026-02-25 09:26:00
+# New system created: 2026-02-25 09:40:00
+
+## Major Changes Made:
+- Fixed Prophet model parameter issues
+- Corrected ARIMA model configuration
+- Improved data preprocessing
+- Enhanced visualization
+- Added model comparison
+
+## Major Performance Optimization Applied:
+- Fixed long execution times (>10 minutes)
+- Optimized Prophet model cross-validation (30→15 days)
+- Reduced ARIMA parameter search space
+- Implemented memory-efficient data types
+- Added performance monitoring system
+- Streamlined visualization rendering
+- Expected performance improvement: 60-70% faster execution
+
+## Complete System Rebuild (2026-02-25):
+- Created modular Python package structure
+- Implemented proper configuration management (YAML)
+- Built comprehensive data processing pipeline
+- Developed optimized model training modules
+- Created ensemble forecasting system
+- Built advanced visualization module
+- Added performance monitoring and logging
+- Created comprehensive documentation
+- Added example usage scripts
+- Implemented proper error handling
+- Added health recommendations system
+- Created command-line interface
+- Added package management (setup.py, requirements.txt)
+
+NOTES:
+======
+- AQI calculations follow US EPA methodology (currently used in Philippines)
+- Prophet model configured for air quality time series forecasting
+- Visualizations provide both historical analysis and future predictions
+- All intermediate and final results are exported for further analysis
