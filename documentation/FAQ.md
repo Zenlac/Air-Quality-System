@@ -198,7 +198,24 @@ Typical accuracy ranges:
 - **Excellent**: 365+ days (1+ year) for best accuracy
 - **Optimal**: 730+ days (2+ years) for seasonal patterns
 
-### **Q11: What if my data doesn't meet requirements?**
+### **Q11: What is the data requirements warning section?**
+**A:** The **"📋 Important: Data Requirements & Recommendations"** section is a prominent warning at the top of the web interface that:
+
+**Provides Guidance:**
+- **Required Data Format**: Essential columns and accepted naming conventions
+- **Data Quality Recommendations**: Minimum 30 days data, consistent intervals
+- **Common Issues to Avoid**: Format problems that cause processing errors
+- **Pro Tip**: Information about automatic AQI calculation from pollutants
+
+**Benefits Users:**
+- ✅ **Error Prevention**: Reduces data format errors before upload
+- ✅ **Time Saving**: Clear requirements upfront prevent failed attempts
+- ✅ **Quality Assurance**: Promotes better data preparation practices
+- ✅ **Feature Awareness**: Users learn about automatic AQI calculation
+
+**⚠️ Always review this section before uploading data!**
+
+### **Q12: What if my data doesn't meet requirements?**
 **A:** The system will:
 - **Reject data** with missing required columns
 - **Reject data** with missing AQI values

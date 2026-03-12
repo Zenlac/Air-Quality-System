@@ -48,6 +48,7 @@ The Air Pollution Forecasting System is a sophisticated machine learning tool th
 - ✅ **Model Comparison**: Automatic quality assessment and ensemble logic
 - ✅ **Health Impact Analysis**: Risk periods and population impact
 - ✅ **Interactive Web UI**: 4-tab interface with comprehensive outputs
+- ✅ **Data Requirements Warning**: Prominent guidance section for raw data users
 - ✅ **Export Capabilities**: CSV, JSON, TXT format downloads
 - ✅ **Strict Data Format**: Eliminates timestamp errors with validation
 
@@ -157,7 +158,42 @@ The web interface provides the most user-friendly way to use the system:
 python run_ui.py
 ```
 
-The interface will open at `http://localhost:8501` with four main tabs:
+The interface will open at `http://localhost:8501` with a prominent **Data Requirements Warning** section at the top, followed by four main tabs:
+
+### **🚨 Important: Data Requirements Warning**
+
+When you first open the web interface, you'll see an expanded warning section titled **"📋 Important: Data Requirements & Recommendations"**. This section provides critical guidance for raw data users:
+
+#### **What's Included:**
+- **Required Data Format**: Essential columns and accepted naming conventions
+  - Timestamp columns: `Timestamp`, `Date`, `datetime`, `date`, `time`
+  - AQI columns: `AQI`, `aqi`, `Air_Quality_Index`, `Air Quality Index`
+  - Optional pollutants: PM2.5, PM10, NO2, CO, SO2, O3, NH3, NO, NOx, Benzene, Toluene, Xylene
+
+- **Data Quality Recommendations**:
+  - Minimum 30 days of historical data for reliable forecasting
+  - Hourly or daily measurements (avoid gaps > 24 hours)
+  - Consistent time intervals between measurements
+  - Valid AQI values ranging from 0-500
+
+- **Common Issues to Avoid**:
+  - Missing timestamps or invalid date formats
+  - AQI values outside 0-500 range
+  - Large gaps in time series data
+  - Non-numeric pollutant concentrations
+
+- **Pro Tip**: Automatic AQI calculation from pollutant concentrations using US EPA standards
+
+#### **Why This Matters:**
+This warning section helps users:
+- ✅ Avoid common data format errors that cause processing failures
+- ✅ Understand minimum data requirements for accurate forecasting
+- ✅ Save time by providing correct data format upfront
+- ✅ Leverage automatic AQI calculation when AQI values are missing
+
+**⚠️ Always review this section before uploading data to ensure successful processing!**
+
+---
 
 ### **Tab 1: Data Upload & Processing**
 

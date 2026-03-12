@@ -18,9 +18,9 @@ This folder contains all documentation for the Air Pollution Forecasting System 
 
 ### [USER_GUIDE.md](USER_GUIDE.md)
 - **Purpose**: Comprehensive user manual with web interface guide
-- **Content**: Step-by-step instructions for all features
+- **Content**: Step-by-step instructions for all features including data requirements warning
 - **Audience**: End users and operators
-- **Updated**: 2026-03-05
+- **Updated**: 2026-03-12
 
 ### [FAQ.md](FAQ.md)
 - **Purpose**: Frequently asked questions covering all aspects
@@ -30,9 +30,9 @@ This folder contains all documentation for the Air Pollution Forecasting System 
 
 ### [UI_README.md](UI_README.md)
 - **Purpose**: Web interface specific guide
-- **Content**: UI features and navigation details
+- **Content**: UI features, navigation details, and data requirements warning section
 - **Audience**: Web interface users
-- **Updated**: 2026-02-27
+- **Updated**: 2026-03-12
 
 ## 🔧 **Technical Documentation**
 
@@ -56,9 +56,9 @@ This folder contains all documentation for the Air Pollution Forecasting System 
 
 ### [COMPREHENSIVE_OUTPUTS_GUIDE.md](COMPREHENSIVE_OUTPUTS_GUIDE.md)
 - **Purpose**: Complete documentation of all system outputs
-- **Content**: All UI outputs, metrics, and features documented
+- **Content**: All UI outputs, metrics, features, and data requirements warning
 - **Audience**: Users and developers
-- **Updated**: 2026-03-05
+- **Updated**: 2026-03-12
 
 ### [REQUIREMENTS_VERIFICATION.md](REQUIREMENTS_VERIFICATION.md)
 - **Purpose**: Verification of all system requirements
@@ -141,15 +141,16 @@ This folder contains all documentation for the Air Pollution Forecasting System 
 
 ## 📅 **Last Updated**
 
-All documentation was updated to reflect the current system version on: **2026-03-05**
+All documentation was updated to reflect the current system version on: **2026-03-12**
 
 ### **Version 2.0 New Features**
 - ✅ **ML Metrics**: R², RMSE, MAE, MAPE evaluation
-- ✅ **Web Interface**: 4-tab comprehensive UI
+- ✅ **Web Interface**: 4-tab comprehensive UI with data requirements warning
 - ✅ **Health Analysis**: Risk periods and population impact
 - ✅ **Export Capabilities**: Multiple format downloads
 - ✅ **Strict Data Format**: Eliminates timestamp errors
 - ✅ **Model Comparison**: Automatic quality assessment
+- ✅ **User Guidance**: Prominent data requirements warning section
 
 ---
 

@@ -27,6 +27,7 @@ A comprehensive Python-based system for air quality prediction using advanced ma
 
 ### **User Interface**
 - **Comprehensive Web UI**: 4-tab interface with full functionality
+- **Data Requirements Warning**: Prominent guidance section for raw data users
 - **Interactive Visualizations**: Plotly charts with hover details
 - **Progress Tracking**: Real-time status updates and progress bars
 - **Export Capabilities**: CSV, JSON, TXT format downloads
@@ -78,6 +79,7 @@ python test_imports.py
 python run_ui.py
 ```
 The web interface will open at `http://localhost:8501` with:
+- **Data Requirements Warning**: Prominent guidance for data format requirements
 - **Data Upload & Processing**: Upload and validate your data
 - **Model Training**: Train Prophet and ARIMA models with ML metrics
 - **Forecast Generation**: Generate forecasts with confidence intervals

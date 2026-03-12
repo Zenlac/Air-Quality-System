@@ -1,7 +1,28 @@
 # Comprehensive Website Outputs Guide
 
 ## Overview
-The Air Pollution Forecasting System website now displays **comprehensive outputs** across all tabs, ensuring users get complete information about their air quality data and forecasts.
+The Air Pollution Forecasting System website now displays **comprehensive outputs** across all tabs, ensuring users get complete information about their air quality data and forecasts. The interface includes a prominent **Data Requirements Warning** section to guide users in providing correct data formats.
+
+---
+
+## 🚨 **Data Requirements Warning Section** (Top of Interface)
+
+### User Guidance Features
+- ✅ **Expandable Warning Section**: Prominent guidance for raw data users (expanded by default)
+- ✅ **Required Data Format**: Clear specifications for Timestamp and AQI columns
+- ✅ **Accepted Column Names**: Multiple naming conventions supported (Timestamp, Date, datetime, etc.)
+- ✅ **Data Quality Recommendations**: Minimum 30 days data, consistent intervals, valid AQI ranges
+- ✅ **Common Issues to Avoid**: Format problems that cause processing errors
+- ✅ **Pro Tip Section**: Information about automatic AQI calculation from pollutants
+- ✅ **Help Links**: References to sample data directory and quality warnings
+
+### Benefits to Users
+- 🎯 **Error Prevention**: Reduces data format errors before upload
+- 🎯 **Time Saving**: Clear requirements upfront prevent failed processing attempts
+- 🎯 **Quality Assurance**: Promotes better data preparation practices
+- 🎯 **Feature Awareness**: Users learn about automatic AQI calculation capabilities
+
+---
 
 ## 📊 **Tab 1: Data Upload & Processing**
 

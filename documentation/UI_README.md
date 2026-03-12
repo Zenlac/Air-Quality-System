@@ -9,6 +9,7 @@ A user-friendly web interface for the Air Pollution Forecasting System built wit
 - **Data Preview**: Instant preview of uploaded data with statistics
 - **Data Processing**: Automated data cleaning and preprocessing
 - **Format Validation**: Checks for required columns (Timestamp, AQI)
+- **Data Requirements Warning**: Prominent guidance for raw data users with format specifications
 
 ### 🤖 Model Training
 - **One-Click Training**: Train Prophet and ARIMA models with a single click
@@ -63,6 +64,16 @@ streamlit run app.py
    - If not opened automatically, visit the URL manually
 
 ## 📋 Usage Guide
+
+### Important: Data Requirements Notice
+When you first open the web interface, you'll see a prominent **"📋 Important: Data Requirements & Recommendations"** section at the top. This expandable warning provides:
+
+- **Required Data Format**: Essential columns (Timestamp, AQI) and accepted naming conventions
+- **Data Quality Recommendations**: Minimum data requirements (30+ days, consistent intervals)
+- **Common Issues to Avoid**: Format problems that cause errors
+- **Pro Tip**: Information about automatic AQI calculation from pollutant data
+
+**⚠️ Always review this section before uploading data to avoid processing errors!**
 
 ### Step 1: Upload Data
 1. Click the "📊 Data Upload" tab
