@@ -660,6 +660,40 @@ def main():
     # Header
     st.markdown('<h1 class="main-header">Air Pollution Forecasting System</h1>', unsafe_allow_html=True)
     
+    # Data Requirements Warning for Raw Data Users
+    with st.expander("📋 Important: Data Requirements & Recommendations", expanded=True):
+        st.markdown("""
+        ### 🚨 For Raw Data Users - Please Read Before Uploading
+        
+        **Required Data Format:**
+        - **Timestamp Column**: Must contain date/time information (column names: `Timestamp`, `Date`, `datetime`, `date`, `time`)
+        - **AQI Column**: Air Quality Index values (column names: `AQI`, `aqi`, `Air_Quality_Index`, `Air Quality Index`)
+        - **Pollutant Data** (Optional but Recommended): PM2.5, PM10, NO2, CO, SO2, O3, NH3, NO, NOx, Benzene, Toluene, Xylene
+        
+        **Data Quality Recommendations:**
+        - ✅ **Minimum 30 days** of historical data for reliable forecasting
+        - ✅ **Hourly or daily** measurements (avoid gaps longer than 24 hours)
+        - ✅ **Consistent time intervals** between measurements
+        - ✅ **Valid AQI values** ranging from 0-500
+        
+        **Common Issues to Avoid:**
+        - ❌ Missing timestamps or invalid date formats
+        - ❌ AQI values outside 0-500 range
+        - ❌ Large gaps in time series data
+        - ❌ Non-numeric pollutant concentrations
+        
+        **Pro Tip**: If you only have pollutant concentrations (PM2.5, PM10, etc.) but no AQI values, 
+        the system will automatically calculate AQI using US EPA standards!
+        """)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.info("📖 **Need sample data?** Check the `csv_files/data_files/` directory for example formats")
+        with col2:
+            st.warning("⚠️ **Poor data quality will affect forecast accuracy**")
+    
+    st.markdown("---")  # Separator line
+    
     # Sidebar
     st.sidebar.title("Configuration")
     
