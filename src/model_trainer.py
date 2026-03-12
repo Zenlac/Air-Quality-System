@@ -9,6 +9,8 @@ Created: 2026-02-25
 import pandas as pd
 import numpy as np
 import logging
+import pickle
+import hashlib
 from typing import Dict, Tuple, Any
 from prophet import Prophet
 from pmdarima import auto_arima
@@ -42,6 +44,75 @@ class ModelTrainer:
         # Get configuration values for models
         self.prophet_config = config.get('prophet', {})
         self.arima_config = config.get('arima', {})
+        
+        # Enable caching if configured
+        self.enable_cache = config.get('performance.cache_results', True)
+        self.cache_dir = 'model_cache'
+    
+    def _get_cache_key(self, df: pd.DataFrame, model_type: str) -> str:
+        """
+        Generate cache key based on data hash and model configuration
+        
+        Args:
+            df: Input DataFrame
+            model_type: Type of model ('prophet' or 'arima')
+            
+        Returns:
+            Cache key string
+        """
+        # Create hash of data shape and last few values
+        data_str = f"{df.shape}_{df.tail(10).to_string()}"
+        config_str = str(self.prophet_config if model_type == 'prophet' else self.arima_config)
+        combined_str = f"{data_str}_{config_str}"
+        return hashlib.md5(combined_str.encode()).hexdigest()
+    
+    def _load_cached_model(self, cache_key: str, model_type: str):
+        """
+        Load model from cache if available
+        
+        Args:
+            cache_key: Cache key
+            model_type: Type of model
+            
+        Returns:
+            Cached model or None if not found
+        """
+        if not self.enable_cache:
+            return None
+            
+        try:
+            import os
+            cache_file = os.path.join(self.cache_dir, f"{model_type}_{cache_key}.pkl")
+            if os.path.exists(cache_file):
+                with open(cache_file, 'rb') as f:
+                    model = pickle.load(f)
+                self.logger.info(f"Loaded cached {model_type} model")
+                return model
+        except Exception as e:
+            self.logger.warning(f"Failed to load cached model: {str(e)}")
+        return None
+    
+    def _save_cached_model(self, model, cache_key: str, model_type: str):
+        """
+        Save model to cache
+        
+        Args:
+            model: Trained model
+            cache_key: Cache key
+            model_type: Type of model
+        """
+        if not self.enable_cache:
+            return
+            
+        try:
+            import os
+            os.makedirs(self.cache_dir, exist_ok=True)
+            cache_file = os.path.join(self.cache_dir, f"{model_type}_{cache_key}.pkl")
+            with open(cache_file, 'wb') as f:
+                pickle.dump(model, f)
+            self.logger.info(f"Saved cached {model_type} model")
+        except Exception as e:
+            self.logger.warning(f"Failed to save cached model: {str(e)}")
     
     def train_prophet(self, df: pd.DataFrame) -> Prophet:
         """
@@ -55,6 +126,12 @@ class ModelTrainer:
         """
         self.logger.info("Training Prophet model...")
         
+        # Check cache first
+        cache_key = self._get_cache_key(df, 'prophet')
+        cached_model = self._load_cached_model(cache_key, 'prophet')
+        if cached_model is not None:
+            return cached_model
+        
         with self.perf_monitor.measure("prophet_training"):
             # Prepare data for Prophet
             prophet_df = self._prepare_prophet_data(df)
@@ -64,21 +141,24 @@ class ModelTrainer:
                 yearly_seasonality=self.prophet_config.get('yearly_seasonality', True),
                 weekly_seasonality=self.prophet_config.get('weekly_seasonality', True),
                 daily_seasonality=self.prophet_config.get('daily_seasonality', False),
-                seasonality_mode=self.prophet_config.get('seasonality_mode', 'multiplicative'),
-                changepoint_prior_scale=self.prophet_config.get('changepoint_prior_scale', 0.05),
-                seasonality_prior_scale=self.prophet_config.get('seasonality_prior_scale', 10.0),
-                holidays_prior_scale=self.prophet_config.get('holidays_prior_scale', 10.0),
+                seasonality_mode=self.prophet_config.get('seasonality_mode', 'additive'),
+                changepoint_prior_scale=self.prophet_config.get('changepoint_prior_scale', 0.1),
+                seasonality_prior_scale=self.prophet_config.get('seasonality_prior_scale', 5.0),
+                holidays_prior_scale=self.prophet_config.get('holidays_prior_scale', 5.0),
                 mcmc_samples=self.prophet_config.get('mcmc_samples', 0),
                 interval_width=self.prophet_config.get('interval_width', 0.8),
-                uncertainty_samples=self.prophet_config.get('uncertainty_samples', 1000)
+                uncertainty_samples=self.prophet_config.get('uncertainty_samples', 500)
             )
             
-            # Add custom seasonality if needed
+            # Add custom seasonality if needed (simplified)
             if 'season' in prophet_df.columns:
-                model.add_seasonality(name='quarterly', period=91.25, fourier_order=8)
+                model.add_seasonality(name='quarterly', period=91.25, fourier_order=4)
             
             # Fit the model
             model.fit(prophet_df)
+            
+            # Save to cache
+            self._save_cached_model(model, cache_key, 'prophet')
             
             self.logger.info("Prophet model training completed")
             
@@ -96,6 +176,12 @@ class ModelTrainer:
         """
         self.logger.info("Training ARIMA model...")
         
+        # Check cache first
+        cache_key = self._get_cache_key(df, 'arima')
+        cached_model = self._load_cached_model(cache_key, 'arima')
+        if cached_model is not None:
+            return cached_model
+        
         with self.perf_monitor.measure("arima_training"):
             # Prepare data for ARIMA
             ts_data = df[self.target_column].astype(np.float32)
@@ -105,17 +191,17 @@ class ModelTrainer:
                 ts_data,
                 start_p=self.arima_config.get('start_p', 0),
                 start_q=self.arima_config.get('start_q', 0),
-                max_p=self.arima_config.get('max_p', 3),
-                max_q=self.arima_config.get('max_q', 3),
-                max_d=self.arima_config.get('max_d', 2),
+                max_p=self.arima_config.get('max_p', 2),
+                max_q=self.arima_config.get('max_q', 2),
+                max_d=self.arima_config.get('max_d', 1),
                 seasonal=self.arima_config.get('seasonal', True),
                 m=self.arima_config.get('m', 7),
                 start_P=self.arima_config.get('start_P', 0),
                 start_Q=self.arima_config.get('start_Q', 0),
-                max_P=self.arima_config.get('max_P', 2),
-                max_Q=self.arima_config.get('max_Q', 2),
+                max_P=self.arima_config.get('max_P', 1),
+                max_Q=self.arima_config.get('max_Q', 1),
                 max_D=self.arima_config.get('max_D', 1),
-                max_order=self.arima_config.get('max_order', 6),
+                max_order=self.arima_config.get('max_order', 4),
                 stepwise=self.arima_config.get('stepwise', True),
                 suppress_warnings=self.arima_config.get('suppress_warnings', True),
                 error_action=self.arima_config.get('error_action', 'ignore'),
@@ -124,8 +210,13 @@ class ModelTrainer:
                 alpha=self.arima_config.get('alpha', 0.05),
                 test=self.arima_config.get('test', 'kpss'),
                 seasonal_test=self.arima_config.get('seasonal_test', 'ocsb'),
-                n_jobs=1
+                n_jobs=-1,
+                maxiter=50,  # Limit iterations
+                random_state=42  # For reproducibility
             )
+            
+            # Save to cache
+            self._save_cached_model(model, cache_key, 'arima')
             
             self.logger.info(f"ARIMA model training completed. Order: {model.order}")
             
@@ -184,10 +275,10 @@ class ModelTrainer:
             # Perform cross-validation with optimized parameters
             df_cv = cross_validation(
                 model,
-                initial='180 days',  # Use 6 months for initial training
-                period='15 days',    # Reduced from 30 days for faster execution
-                horizon='30 days',   # 30-day forecast horizon
-                parallel=None
+                initial='120 days',  # Reduced from 180 days
+                period='30 days',    # Increased from 15 days to reduce iterations
+                horizon='15 days',   # Reduced from 30 days
+                parallel='processes'  # Enable parallel processing
             )
             
             # Calculate performance metrics
@@ -316,3 +407,16 @@ class ModelTrainer:
         }
         
         return summary
+    
+    def clear_cache(self):
+        """
+        Clear all cached models
+        """
+        try:
+            import os
+            import shutil
+            if os.path.exists(self.cache_dir):
+                shutil.rmtree(self.cache_dir)
+                self.logger.info("Model cache cleared")
+        except Exception as e:
+            self.logger.warning(f"Failed to clear cache: {str(e)}")

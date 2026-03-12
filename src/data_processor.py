@@ -16,9 +16,11 @@ from datetime import datetime
 try:
     from .config import Config
     from .utils import PerformanceMonitor
+    from .aqi_calculator import create_aqi_calculator
 except ImportError:
     from config import Config
     from utils import PerformanceMonitor
+    from aqi_calculator import create_aqi_calculator
 
 
 class DataProcessor:
@@ -41,6 +43,11 @@ class DataProcessor:
         self.pollutant_columns = config.get('data.pollutant_columns', [])
         self.missing_threshold = config.get('data.missing_threshold', 0.3)
         self.outlier_threshold = config.get('data.outlier_threshold', 3.0)
+        
+        # Initialize AQI calculator
+        aqi_standard = config.get('aqi.standard', 'US_EPA')
+        self.aqi_calculator = create_aqi_calculator(aqi_standard)
+        self.calculate_aqi = config.get('aqi.calculate_from_pollutants', True)
     
     def load_data(self, file_path: str) -> pd.DataFrame:
         """
@@ -142,6 +149,18 @@ class DataProcessor:
             
             # Remove outliers
             processed_df = self._remove_outliers(processed_df)
+            
+            # Calculate AQI from pollutants if enabled or if AQI column is missing/invalid
+            should_calculate_aqi = self.calculate_aqi or 'AQI' not in processed_df.columns or processed_df['AQI'].isna().all()
+            if should_calculate_aqi:
+                self.logger.info("AQI calculation needed - calculating from pollutant concentrations...")
+                processed_df = self._calculate_aqi_from_pollutants(processed_df)
+                
+                # If original AQI was missing, use calculated AQI
+                if 'AQI' not in processed_df.columns or processed_df['AQI'].isna().all():
+                    if 'Calculated_AQI' in processed_df.columns:
+                        processed_df['AQI'] = processed_df['Calculated_AQI']
+                        self.logger.info("Used calculated AQI as primary AQI column")
             
             # Add time-based features
             processed_df = self._add_time_features(processed_df)
@@ -299,6 +318,39 @@ class DataProcessor:
         df['is_weekend'] = (df.index.dayofweek >= 5).astype(int)
         
         return df
+    
+    def _calculate_aqi_from_pollutants(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculate AQI from individual pollutant concentrations
+        
+        Args:
+            df: DataFrame with pollutant concentrations
+            
+        Returns:
+            DataFrame with calculated AQI columns
+        """
+        self.logger.info("Calculating AQI from pollutant concentrations...")
+        
+        try:
+            # Use AQI calculator to calculate AQI for all rows
+            df_with_aqi = self.aqi_calculator.calculate_aqi_for_dataframe(df)
+            
+            # Log statistics
+            if 'Calculated_AQI' in df_with_aqi.columns:
+                aqi_stats = self.aqi_calculator.get_aqi_statistics(df_with_aqi)
+                self.logger.info(f"AQI calculation completed. Mean AQI: {aqi_stats.get('mean', 0):.2f}")
+                
+                # Compare with existing AQI if present
+                if 'AQI' in df.columns:
+                    correlation = df_with_aqi['AQI'].corr(df_with_aqi['Calculated_AQI'])
+                    self.logger.info(f"Correlation with original AQI: {correlation:.3f}")
+            
+            return df_with_aqi
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating AQI from pollutants: {str(e)}")
+            # Return original DataFrame if calculation fails
+            return df
     
     def _optimize_memory(self, df: pd.DataFrame) -> pd.DataFrame:
         """Optimize memory usage by converting data types"""

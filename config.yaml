@@ -1,74 +1,92 @@
-arima:
-  alpha: 0.05
-  error_action: ignore
-  information_criterion: aic
-  m: 7
-  max_D: 1
-  max_P: 2
-  max_Q: 2
-  max_d: 2
-  max_order: 6
-  max_p: 5
-  max_q: 5
-  seasonal: true
-  seasonal_test: ocsb
-  start_P: 0
-  start_Q: 0
-  start_p: 0
-  start_q: 0
-  stepwise: true
-  suppress_warnings: true
-  test: kpss
-  trace: false
+# AQI Calculation Settings
+aqi:
+  standard: US_EPA  # Options: US_EPA, INDIA_NAAQS, CHINA_MEP
+  calculate_from_pollutants: true
+  dominant_pollutant_tracking: true
+  health_impact_assessment: true
+
+# Data Processing Settings
 data:
   date_column: Timestamp
+  target_column: AQI
+  pollutant_columns:
+    - PM2.5
+    - PM10
+    - NO2
+    - CO
+    - NO
+    - NOx
+    - NH3
+    - SO2
+    - O3
+    - Benzene
+    - Toluene
+    - Xylene
   missing_threshold: 0.3
   outlier_threshold: 3.0
-  pollutant_columns:
-  - PM2.5
-  - PM10
-  - 'NO'
-  - NO2
-  - NOx
-  - NH3
-  - CO
-  - SO2
-  - O3
-  - Benzene
-  - Toluene
-  - Xylene
-  target_column: AQI
+
+# Prophet Model Settings
+prophet:
+  yearly_seasonality: true
+  weekly_seasonality: true
+  daily_seasonality: false
+  seasonality_mode: additive
+  changepoint_prior_scale: 0.1
+  seasonality_prior_scale: 5.0
+  holidays_prior_scale: 5.0
+  mcmc_samples: 0
+  interval_width: 0.8
+  uncertainty_samples: 500
+
+# ARIMA Model Settings
+arima:
+  start_p: 0
+  start_q: 0
+  max_p: 2
+  max_q: 2
+  max_d: 1
+  seasonal: true
+  m: 7
+  start_P: 0
+  start_Q: 0
+  max_P: 1
+  max_Q: 1
+  max_D: 1
+  max_order: 4
+  stepwise: true
+  suppress_warnings: true
+  error_action: ignore
+  trace: false
+  information_criterion: aic
+  alpha: 0.05
+  test: kpss
+  seasonal_test: ocsb
+
+# Forecasting Settings
 forecasting:
-  arima_weight: 0.3
+  default_horizon: 31
+  prophet_weight: 0.6
+  arima_weight: 0.4
   confidence_level: 0.95
-  default_horizon: 14
-  prophet_weight: 0.7
-logging:
-  file: air_pollution_system.log
-  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-  level: INFO
+
+# Visualization Settings
+visualization:
+  figure_size: [16, 12]
+  dpi: 100
+  style: seaborn-v0_8
+  color_palette: husl
+  save_format: png
+  bbox_inches: tight
+
+# Performance Settings
 performance:
-  cache_results: true
   enable_monitoring: true
   memory_optimization: true
-  parallel_processing: false
-prophet:
-  changepoint_prior_scale: 0.1
-  daily_seasonality: false
-  holidays_prior_scale: 10.0
-  interval_width: 0.8
-  mcmc_samples: 0
-  seasonality_mode: multiplicative
-  seasonality_prior_scale: 10.0
-  uncertainty_samples: 1000
-  weekly_seasonality: true
-  yearly_seasonality: true
-visualization:
-  bbox_inches: tight
-  color_palette: husl
-  dpi: 100
-  figure_size:
-  - 16
-  - 12
-  save_format: png
-  style: seaborn-v0_8
+  parallel_processing: true
+  cache_results: true
+
+# Logging Settings
+logging:
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  file: air_pollution_system.log

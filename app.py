@@ -220,8 +220,14 @@ def auto_reformat_data(df):
         # Step 4: Clean and validate data
         reformatted_df = clean_and_validate_data(reformatted_df)
         
-        # Step 5: Reorder columns to expected format
-        reformatted_df = reorder_columns(reformatted_df)
+        # Step 5: Calculate AQI from pollutants if AQI is missing or invalid
+        reformatted_df = calculate_aqi_in_reformatting(reformatted_df)
+        
+        # Step 6: Calculate AQI buckets/categories
+        reformatted_df = calculate_aqi_buckets(reformatted_df)
+        
+        # Step 7: Reorder columns to expected format
+        reformatted_df = reorder_columns_with_aqi(reformatted_df)
         
         return reformatted_df
         
@@ -335,46 +341,187 @@ def standardize_date_column(df):
     return df
 
 def clean_and_validate_data(df):
-    """Clean and validate the data"""
-    # Clean numeric columns
+    """Clean and validate the data while preserving actual measurements"""
+    # Clean numeric columns but preserve actual values
     numeric_columns = ['AQI', 'PM2.5', 'PM10', 'NO', 'NO2', 'NOx', 'NH3', 'CO', 'SO2', 'O3', 'Benzene', 'Toluene', 'Xylene']
     
     for col in numeric_columns:
         if col in df.columns:
-            # Convert to numeric, replacing errors with NaN
+            # Convert to numeric, preserving actual values
             df[col] = pd.to_numeric(df[col], errors='coerce')
             
-            # Fill NaN values with appropriate defaults
+            # For AQI, only fill extreme missing values
             if col == 'AQI':
-                # For AQI, use median or 50 as default
-                if df[col].isnull().any():
-                    median_val = df[col].median()
-                    if pd.isna(median_val):
-                        median_val = 50
-                    df[col] = df[col].fillna(median_val)
+                # Don't fill AQI values - let the calculation handle it
+                pass  # Keep NaN values as they will be calculated
             else:
-                # For pollutants, use 0 as default
-                df[col] = df[col].fillna(0)
+                # For pollutants, only fill truly missing values with small values
+                # This preserves the actual measurements in the CSV
+                missing_mask = df[col].isna()
+                if missing_mask.any():
+                    # Use a very small value instead of 0 to indicate detection limit
+                    df.loc[missing_mask, col] = 0.001  # Detection limit placeholder
             
-            # Remove negative values (except for some specific cases)
-            if col not in ['NO', 'NOx']:  # These can be negative in some cases
+            # Remove negative values (except for NO and NOx which can be negative)
+            if col not in ['NO', 'NOx']:
                 df[col] = df[col].clip(lower=0)
     
-    # Validate AQI range (should be 0-500)
-    if 'AQI' in df.columns:
-        df['AQI'] = df['AQI'].clip(0, 500)
+    # Don't validate AQI range here - let AQI calculation handle it
+    # This preserves the actual pollutant measurements
     
     return df
 
-def reorder_columns(df):
-    """Reorder columns to match expected format"""
-    expected_order = [
+def calculate_aqi_in_reformatting(df):
+    """Calculate AQI from actual pollutant concentrations in the CSV data"""
+    try:
+        # Check if AQI calculation is needed
+        should_calculate = (
+            'AQI' not in df.columns or 
+            df['AQI'].isna().all() or 
+            (df['AQI'] == 0).all() or
+            df['AQI'].std() == 0  # All values are the same
+        )
+        
+        if should_calculate:
+            st.info("🔍 Calculating AQI from actual pollutant concentrations in your data...")
+            
+            # Import AQI calculator
+            from src.aqi_calculator import create_aqi_calculator
+            aqi_calc = create_aqi_calculator('US_EPA')
+            
+            # Calculate AQI for each row using actual pollutant values
+            aqi_values = []
+            calculation_count = 0
+            
+            for idx, row in df.iterrows():
+                concentrations = {}
+                pollutant_cols = ['PM2.5', 'PM10', 'NO2', 'CO', 'SO2', 'O3', 'NH3', 'NO', 'NOx', 'Benzene', 'Toluene', 'Xylene']
+                
+                # Use actual values from CSV
+                for col in pollutant_cols:
+                    if col in df.columns:
+                        value = row[col]
+                        # Only include if we have a valid, non-zero measurement
+                        if not pd.isna(value) and value > 0:
+                            concentrations[col] = float(value)
+                
+                if concentrations:
+                    aqi = aqi_calc.calculate_aqi(concentrations)
+                    aqi_values.append(aqi)
+                    calculation_count += 1
+                else:
+                    # If no pollutant data available, use a conservative estimate
+                    aqi_values.append(50.0)  # Moderate air quality as default
+            
+            # Update AQI column
+            df['AQI'] = aqi_values
+            
+            # Log calculation summary
+            st.success(f"✅ Calculated AQI for {calculation_count} out of {len(df)} records using actual pollutant data")
+            
+            # Show calculation summary
+            if calculation_count > 0:
+                valid_aqi = [aqi for aqi in aqi_values if aqi != 50.0]
+                if valid_aqi:
+                    st.info(f"📊 AQI Range from calculation: {min(valid_aqi):.1f} - {max(valid_aqi):.1f}")
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ AQI calculation failed: {str(e)}")
+        # Ensure AQI column exists with conservative default
+        if 'AQI' not in df.columns:
+            df['AQI'] = 50.0
+        return df
+
+def calculate_aqi_buckets(df):
+    """Calculate AQI buckets/categories with detailed analysis using real data"""
+    try:
+        # Calculate AQI categories and related information
+        categories = []
+        colors = []
+        health_messages = []
+        dominant_pollutants = []
+        sub_indices = []  # Track individual pollutant contributions
+        
+        # Import AQI calculator
+        from src.aqi_calculator import create_aqi_calculator
+        aqi_calc = create_aqi_calculator('US_EPA')
+        
+        st.info("🏷️ Calculating AQI categories and health impacts...")
+        
+        for idx, row in df.iterrows():
+            aqi_value = row['AQI']
+            
+            # Get AQI bucket information
+            category, color, health_message = get_aqi_category(aqi_value)
+            categories.append(category)
+            colors.append(color)
+            health_messages.append(health_message)
+            
+            # Find dominant pollutant using actual concentrations
+            concentrations = {}
+            pollutant_cols = ['PM2.5', 'PM10', 'NO2', 'CO', 'SO2', 'O3', 'NH3', 'NO', 'NOx', 'Benzene', 'Toluene', 'Xylene']
+            
+            for col in pollutant_cols:
+                if col in df.columns:
+                    value = row[col]
+                    # Use actual values from CSV, ignore detection limit placeholders
+                    if not pd.isna(value) and value > 0.01:  # Above detection limit
+                        concentrations[col] = float(value)
+            
+            if concentrations:
+                dominant_pollutant, sub_index = aqi_calc.get_dominant_pollutant(concentrations)
+                dominant_pollutants.append(dominant_pollutant)
+                sub_indices.append(sub_index)
+            else:
+                dominant_pollutants.append('Unknown')
+                sub_indices.append(0.0)
+        
+        # Add new columns to DataFrame
+        df['AQI_Category'] = categories
+        df['AQI_Color'] = colors
+        df['Health_Message'] = health_messages
+        df['Dominant_Pollutant'] = dominant_pollutants
+        df['Dominant_Pollutant_SubIndex'] = sub_indices
+        
+        # Provide summary statistics
+        if concentrations:  # If we had real pollutant data
+            category_dist = pd.Series(categories).value_counts()
+            pollutant_dist = pd.Series(dominant_pollutants).value_counts()
+            
+            st.success(f"✅ AQI categorization completed using real pollutant measurements")
+            st.info(f"📊 Most common category: {category_dist.index[0]} ({category_dist.iloc[0]} records)")
+            st.info(f"🔬 Most dominant pollutant: {pollutant_dist.index[0]} ({pollutant_dist.iloc[0]} records)")
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ AQI bucket calculation failed: {str(e)}")
+        # Add default columns if calculation fails
+        df['AQI_Category'] = 'Moderate'
+        df['AQI_Color'] = '#ffff00'
+        df['Health_Message'] = 'Air quality is acceptable'
+        df['Dominant_Pollutant'] = 'Unknown'
+        df['Dominant_Pollutant_SubIndex'] = 0.0
+        return df
+
+def reorder_columns_with_aqi(df):
+    """Reorder columns to match expected format including AQI bucket columns"""
+    # Core columns first
+    core_order = [
         'Timestamp', 'AQI', 'PM2.5', 'PM10', 'NO', 'NO2', 'NOx', 
         'NH3', 'CO', 'SO2', 'O3', 'Benzene', 'Toluene', 'Xylene'
     ]
     
+    # AQI analysis columns next
+    aqi_analysis_order = [
+        'AQI_Category', 'AQI_Color', 'Health_Message', 'Dominant_Pollutant', 'Dominant_Pollutant_SubIndex'
+    ]
+    
     # Get existing columns in expected order
-    ordered_columns = [col for col in expected_order if col in df.columns]
+    ordered_columns = [col for col in core_order if col in df.columns]
+    ordered_columns += [col for col in aqi_analysis_order if col in df.columns]
     
     # Add any remaining columns that weren't in the expected order
     remaining_columns = [col for col in df.columns if col not in ordered_columns]
@@ -700,12 +847,99 @@ def main():
                                     st.metric("Original Records", len(df))
                                     st.metric("Final Records", len(reformatted_df))
                                 
-                                # Show sample of reformatted data
-                                st.subheader("Reformatted Data Preview")
-                                st.dataframe(reformatted_df.head())
+                                # Show sample of reformatted data with AQI results
+                                st.subheader("📊 Reformatted Data Preview with AQI Analysis")
+                                
+                                # Create tabs for different views
+                                preview_tab1, preview_tab2, preview_tab3 = st.tabs(["Data Sample", "AQI Statistics", "AQI Distribution"])
+                                
+                                with preview_tab1:
+                                    # Show first 10 rows with AQI information highlighted
+                                    sample_df = reformatted_df.head(10)
+                                    st.dataframe(sample_df, use_container_width=True)
+                                    
+                                    # Show column information
+                                    st.subheader("📋 Column Information")
+                                    col_info_cols = st.columns(2)
+                                    with col_info_cols[0]:
+                                        st.write("**Core Columns:**")
+                                        core_cols = ['Timestamp', 'AQI', 'PM2.5', 'PM10', 'NO2', 'CO', 'SO2', 'O3']
+                                        for col in core_cols:
+                                            if col in reformatted_df.columns:
+                                                st.write(f"• {col}: ✅ Available")
+                                    
+                                    with col_info_cols[1]:
+                                        st.write("**AQI Analysis Columns:**")
+                                        aqi_cols = ['AQI_Category', 'AQI_Color', 'Health_Message', 'Dominant_Pollutant', 'Dominant_Pollutant_SubIndex']
+                                        for col in aqi_cols:
+                                            if col in reformatted_df.columns:
+                                                st.write(f"• {col}: ✅ Calculated")
+                                
+                                with preview_tab2:
+                                    # Show AQI statistics
+                                    if 'AQI' in reformatted_df.columns:
+                                        st.subheader("📈 AQI Statistics")
+                                        
+                                        aqi_stats_cols = st.columns(4)
+                                        with aqi_stats_cols[0]:
+                                            st.metric("Mean AQI", f"{reformatted_df['AQI'].mean():.1f}")
+                                        with aqi_stats_cols[1]:
+                                            st.metric("Median AQI", f"{reformatted_df['AQI'].median():.1f}")
+                                        with aqi_stats_cols[2]:
+                                            st.metric("Min AQI", f"{reformatted_df['AQI'].min():.1f}")
+                                        with aqi_stats_cols[3]:
+                                            st.metric("Max AQI", f"{reformatted_df['AQI'].max():.1f}")
+                                        
+                                        # Show AQI category distribution
+                                        if 'AQI_Category' in reformatted_df.columns:
+                                            st.subheader("🏷️ AQI Category Distribution")
+                                            category_counts = reformatted_df['AQI_Category'].value_counts()
+                                            category_df = pd.DataFrame({
+                                                'Category': category_counts.index,
+                                                'Count': category_counts.values,
+                                                'Percentage': (category_counts.values / len(reformatted_df) * 100).round(1)
+                                            })
+                                            st.dataframe(category_df, use_container_width=True)
+                                        
+                                        # Show dominant pollutant distribution
+                                        if 'Dominant_Pollutant' in reformatted_df.columns:
+                                            st.subheader("🔬 Dominant Pollutant Distribution")
+                                            pollutant_counts = reformatted_df['Dominant_Pollutant'].value_counts()
+                                            pollutant_df = pd.DataFrame({
+                                                'Pollutant': pollutant_counts.index,
+                                                'Count': pollutant_counts.values,
+                                                'Percentage': (pollutant_counts.values / len(reformatted_df) * 100).round(1)
+                                            })
+                                            st.dataframe(pollutant_df.head(10), use_container_width=True)
+                                
+                                with preview_tab3:
+                                    # Show AQI distribution visualization
+                                    if 'AQI_Category' in reformatted_df.columns:
+                                        st.subheader("📊 AQI Distribution Overview")
+                                        
+                                        # Create summary statistics
+                                        dist_cols = st.columns(3)
+                                        with dist_cols[0]:
+                                            good_count = (reformatted_df['AQI_Category'] == 'Good').sum()
+                                            st.metric("Good Days", good_count, f"{good_count/len(reformatted_df)*100:.1f}%")
+                                        
+                                        with dist_cols[1]:
+                                            moderate_count = (reformatted_df['AQI_Category'] == 'Moderate').sum()
+                                            st.metric("Moderate Days", moderate_count, f"{moderate_count/len(reformatted_df)*100:.1f}%")
+                                        
+                                        with dist_cols[2]:
+                                            unhealthy_count = reformatted_df['AQI_Category'].str.contains('Unhealthy').sum()
+                                            st.metric("Unhealthy Days", unhealthy_count, f"{unhealthy_count/len(reformatted_df)*100:.1f}%")
+                                        
+                                        # Show sample health messages
+                                        st.subheader("💬 Health Recommendations Sample")
+                                        if 'Health_Message' in reformatted_df.columns:
+                                            sample_messages = reformatted_df['Health_Message'].dropna().unique()[:5]
+                                            for i, message in enumerate(sample_messages, 1):
+                                                st.write(f"{i}. {message}")
                                 
                                 # Show column mapping
-                                st.subheader("Column Standardization")
+                                st.subheader("🔄 Column Standardization")
                                 original_cols = df.columns.tolist()
                                 final_cols = reformatted_df.columns.tolist()
                                 mapping_info = []
@@ -1020,119 +1254,37 @@ def main():
                         
                         # Train Prophet model
                         status_text.text("Training Prophet model...")
-                        progress_bar.progress(25)
+                        progress_bar.progress(10)
                         
                         try:
-                            # Create a completely minimal Prophet model that always works
-                            st.write("Creating minimal Prophet model...")
+                            # Use the optimized ModelTrainer class
+                            model_trainer = ModelTrainer(config)
                             
-                            # Create simple, guaranteed working data
-                            import numpy as np
-                            from prophet import Prophet
-                            
-                            # Use the length of the data to create appropriate synthetic data
-                            data_length = len(data)
-                            
-                            # Create simple Prophet dataset
-                            if data_length >= 2:
-                                # Try to extract some real values if possible
-                                try:
-                                    # Get the second column (usually AQI) or use default values
-                                    if len(data.columns) > 1:
-                                        real_values = data.iloc[:, 1].values
-                                        # Convert to numeric, replace errors with median
-                                        numeric_values = pd.to_numeric(real_values, errors='coerce')
-                                        if numeric_values.isna().all():
-                                            values = [50] * data_length
-                                        else:
-                                            values = numeric_values.fillna(50).tolist()
-                                    else:
-                                        values = [50] * data_length
-                                except:
-                                    values = [50] * data_length
-                                
-                                # Create dates
-                                dates = pd.date_range(start='2023-01-01', periods=data_length, freq='D')
-                                
-                                # Create Prophet DataFrame
-                                prophet_df = pd.DataFrame({
-                                    'ds': dates,
-                                    'y': values
-                                })
-                                
-                                # Ensure we have valid data
-                                prophet_df = prophet_df.dropna()
-                                prophet_df = prophet_df[prophet_df['y'] > 0]
-                                
-                                if len(prophet_df) < 2:
-                                    # Use absolute minimal data
-                                    prophet_df = pd.DataFrame({
-                                        'ds': pd.date_range(start='2023-01-01', periods=10, freq='D'),
-                                        'y': [50, 55, 60, 58, 62, 65, 63, 67, 70, 68]
-                                    })
-                            else:
-                                # Use minimal data for very small datasets
-                                prophet_df = pd.DataFrame({
-                                    'ds': pd.date_range(start='2023-01-01', periods=10, freq='D'),
-                                    'y': [50, 55, 60, 58, 62, 65, 63, 67, 70, 68]
-                                })
-                            
-                            st.write("Final Prophet data:")
-                            st.dataframe(prophet_df.head(3))
-                            
-                            # Create simple Prophet model
-                            prophet_model = Prophet(
-                                changepoint_prior_scale=0.5,
-                                seasonality_mode='additive',
-                                weekly_seasonality=False,
-                                yearly_seasonality=False,
-                                daily_seasonality=False
-                            )
-                            
-                            # Fit the model
-                            prophet_model.fit(prophet_df)
-                            progress_bar.progress(50)
+                            # Train Prophet with progress updates
+                            prophet_model = model_trainer.train_prophet(data)
+                            progress_bar.progress(40)
                             status_text.text("Prophet model trained successfully!")
                             st.success("Prophet model created successfully!")
-                            
                         except Exception as prophet_error:
-                            st.error(f"Prophet creation failed: {str(prophet_error)}")
-                            # Create absolute minimal fallback
-                            try:
-                                from prophet import Prophet
-                                prophet_df = pd.DataFrame({
-                                    'ds': pd.date_range(start='2023-01-01', periods=5, freq='D'),
-                                    'y': [50, 52, 48, 55, 53]
-                                })
-                                prophet_model = Prophet()
-                                prophet_model.fit(prophet_df)
-                                progress_bar.progress(50)
-                                status_text.text("Emergency Prophet model created!")
-                                st.warning("Using emergency Prophet model with minimal data")
-                            except Exception as emergency_error:
-                                st.error(f"Emergency Prophet also failed: {str(emergency_error)}")
-                                return
+                            st.error(f"Prophet training failed: {str(prophet_error)}")
+                            prophet_model = None
                         
                         # Train ARIMA model
                         status_text.text("Training ARIMA model...")
-                        progress_bar.progress(75)
+                        progress_bar.progress(60)
                         
                         try:
-                            arima_model = arima_trainer.train(data)
-                            progress_bar.progress(90)
+                            arima_model = model_trainer.train_arima(data)
+                            progress_bar.progress(80)
                             status_text.text("ARIMA model trained successfully!")
+                            st.success("ARIMA model trained successfully!")
                         except Exception as arima_error:
                             st.warning(f"ARIMA training failed: {str(arima_error)}")
-                            st.info("Creating fallback ARIMA model...")
-                            # Create a simple fallback ARIMA model
-                            from statsmodels.tsa.arima.model import ARIMA
-                            try:
-                                # Use simple ARIMA(1,1,1) as fallback
-                                arima_model = ARIMA(data['AQI'], order=(1,1,1))
-                                arima_model = arima_model.fit()
-                            except:
-                                # If even simple ARIMA fails, use None
-                                arima_model = None
+                            arima_model = None
+                        
+                        # Final progress update
+                        progress_bar.progress(90)
+                        status_text.text("Finalizing models...")
                         
                         # Store models in session state
                         st.session_state.prophet_model = prophet_model
