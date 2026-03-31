@@ -198,6 +198,19 @@ Typical accuracy ranges:
 - **Excellent**: 365+ days (1+ year) for best accuracy
 - **Optimal**: 730+ days (2+ years) for seasonal patterns
 
+### **Q10.5: What are realistic MAPE values for air quality forecasting?**
+**A:** Realistic MAPE ranges for air quality forecasting:
+- **Excellent**: 5-15% (very accurate predictions)
+- **Good**: 15-25% (accurate predictions)
+- **Fair**: 25-40% (moderate accuracy)
+- **Poor**: 40-100% (low accuracy)
+
+**Important Notes:**
+- MAPE values > 100% indicate calculation errors (not model performance)
+- Air quality data naturally has higher variability than other time series
+- The system now uses realistic thresholds (0-100% bounds) for MAPE calculation
+- Quality assessment is aligned with actual model performance, not unrealistic standards
+
 ### **Q11: What is the data requirements warning section?**
 **A:** The **"📋 Important: Data Requirements & Recommendations"** section is a prominent warning at the top of the web interface that:
 

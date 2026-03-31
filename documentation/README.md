@@ -7,9 +7,10 @@ A comprehensive Python-based system for air quality prediction using advanced ma
 ### **Core Forecasting**
 - **Advanced Time Series Forecasting**: Uses Prophet and ARIMA models optimized for air quality data
 - **Ensemble Methods**: Combines multiple models for improved accuracy with dynamic weighting
-- **ML Metrics Evaluation**: R², RMSE, MAE, MAPE for comprehensive model assessment
+- **ML Metrics Evaluation**: R², RMSE, MAE, MAPE for comprehensive model assessment with realistic bounds
 - **Confidence Intervals**: 80% confidence bounds for uncertainty quantification
 - **Multiple Forecast Horizons**: Short to long-term forecasting (1-90+ days)
+- **Quality Assessment**: Realistic thresholds adjusted for air quality forecasting (MAPE 15-40%, Accuracy 60-85%)
 
 ### **Data Processing**
 - **Strict Format Validation**: Ensures data consistency with exact column requirements

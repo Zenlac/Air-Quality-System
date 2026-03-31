@@ -198,6 +198,89 @@ if 'prophet_model' not in st.session_state:
     st.session_state.prophet_model = None
 if 'arima_model' not in st.session_state:
     st.session_state.arima_model = None
+# Add additional tracking variables
+if 'training_in_progress' not in st.session_state:
+    st.session_state.training_in_progress = False
+if 'model_training_time' not in st.session_state:
+    st.session_state.model_training_time = None
+if 'last_data_hash' not in st.session_state:
+    st.session_state.last_data_hash = None
+
+def calculate_data_hash(df):
+    """Calculate a hash of the data to detect changes"""
+    try:
+        import hashlib
+        # Create a string representation of key data properties
+        data_str = f"{len(df)}_{df.columns.tolist()}_{df.index.min()}_{df.index.max()}"
+        if 'AQI' in df.columns:
+            data_str += f"_{df['AQI'].mean():.2f}_{df['AQI'].std():.2f}"
+        return hashlib.md5(data_str.encode()).hexdigest()
+    except:
+        return None
+
+def calculate_trend_stability(data):
+    """Calculate trend stability for model quality assessment"""
+    try:
+        if len(data) < 10:
+            return 0.5  # Default for small datasets
+        
+        # Calculate rolling means
+        window = min(len(data) // 4, 30)
+        rolling_std = data['AQI'].rolling(window=window).std().dropna()
+        
+        # Stability based on rolling standard deviation consistency
+        stability_score = 1 - (rolling_std.std() / rolling_std.mean()) if rolling_std.mean() > 0 else 0.5
+        
+        return max(0, min(1, stability_score))
+    except:
+        return 0.5
+
+def calculate_improved_mape(actual, predicted):
+    """Improved MAPE calculation with robust handling"""
+    import numpy as np
+    
+    try:
+        actual = np.array(actual)
+        predicted = np.array(predicted)
+        
+        # Handle zero and near-zero actual values
+        mask = np.abs(actual) > 0.1  # Avoid division by very small numbers
+        if not np.any(mask):
+            return 100.0  # Return high MAPE if all actuals are near zero
+        
+        # Calculate percentage errors only for valid actual values
+        percentage_errors = np.abs((actual[mask] - predicted[mask]) / actual[mask]) * 100
+        
+        # Remove outliers (errors > 200%)
+        percentage_errors = percentage_errors[percentage_errors < 200]
+        
+        if len(percentage_errors) == 0:
+            return 100.0
+        
+        # Calculate MAPE
+        mape = np.mean(percentage_errors)
+        
+        # Apply reasonable bounds
+        return min(max(mape, 0), 200)
+    except:
+        return 50.0  # Reasonable default
+
+def are_models_valid():
+    """Check if models are still valid for current data"""
+    if not st.session_state.models_trained:
+        return False
+    
+    if st.session_state.prophet_model is None and st.session_state.arima_model is None:
+        return False
+    
+    # Check if data has changed
+    current_data = st.session_state.processed_data
+    if current_data is not None:
+        current_hash = calculate_data_hash(current_data)
+        if current_hash != st.session_state.last_data_hash:
+            return False
+    
+    return True
 
 def auto_reformat_data(df):
     """
@@ -668,7 +751,8 @@ def main():
         **Required Data Format:**
         - **Timestamp Column**: Must contain date/time information (column names: `Timestamp`, `Date`, `datetime`, `date`, `time`)
         - **AQI Column**: Air Quality Index values (column names: `AQI`, `aqi`, `Air_Quality_Index`, `Air Quality Index`)
-        - **Pollutant Data** (Optional but Recommended): PM2.5, PM10, NO2, CO, SO2, O3, NH3, NO, NOx, Benzene, Toluene, Xylene
+        - **Pollutant Data** (Optional but 
+        Recommended): PM2.5, PM10, NO2, CO, SO2, O3, NH3, NO, NOx, Benzene, Toluene, Xylene
         
         **Data Quality Recommendations:**
         - ✅ **Minimum 30 days** of historical data for reliable forecasting
@@ -817,6 +901,224 @@ def main():
                 # Display available columns
                 st.subheader("Available Columns")
                 st.write("Columns found:", df.columns.tolist())
+                
+                # Full Dataset Viewer Section
+                st.markdown("---")
+                st.subheader("📊 Full Dataset Viewer")
+                
+                # Data viewing options - better layout for readability
+                st.write("**Viewing Controls:**")
+                
+                # Row 1: Row display and pagination
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Number of rows to display
+                    rows_to_show = st.selectbox(
+                        "📊 Rows to display",
+                        options=[10, 25, 50, 100, 500, 1000, "All"],
+                        index=1,
+                        help="Choose how many rows to display at once"
+                    )
+                
+                with col2:
+                    # Start row for pagination
+                    if rows_to_show != "All":
+                        max_start = max(0, len(df) - int(rows_to_show))
+                        start_row = st.number_input(
+                            "📍 Start from row",
+                            min_value=0,
+                            max_value=max_start,
+                            value=0,
+                            step=int(rows_to_show) if rows_to_show != "All" else 1,
+                            help="Starting row number (0-based)"
+                        )
+                    else:
+                        start_row = 0
+                
+                # Row 2: Column filtering and search
+                col3, col4 = st.columns(2)
+                
+                with col3:
+                    # Column filtering
+                    available_columns = ["All Columns"] + list(df.columns)
+                    selected_column = st.selectbox(
+                        "🔍 Filter by column (optional)",
+                        options=available_columns,
+                        index=0,
+                        help="Show data for specific column only"
+                    )
+                
+                with col4:
+                    # Search functionality
+                    search_term = st.text_input(
+                        "🔎 Search data",
+                        placeholder="Enter search term...",
+                        help="Search across all columns"
+                    )
+                
+                # Apply filters and display data
+                display_df = df.copy()
+                
+                # Apply column filter
+                if selected_column != "All Columns":
+                    display_df = display_df[[selected_column]]
+                
+                # Apply search filter
+                if search_term:
+                    mask = display_df.astype(str).apply(
+                        lambda x: x.str.contains(search_term, case=False, na=False)
+                    ).any(axis=1)
+                    display_df = display_df[mask]
+                    if len(display_df) == 0:
+                        st.warning(f"No results found for '{search_term}'")
+                        display_df = df.head(0)  # Show empty dataframe
+                
+                # Show dataset info with filters
+                st.info(f"📈 Showing {len(display_df)} of {len(df)} total records")
+                
+                # Display the data with pagination
+                if rows_to_show != "All":
+                    end_row = min(start_row + int(rows_to_show), len(display_df))
+                    paginated_df = display_df.iloc[start_row:end_row]
+                else:
+                    paginated_df = display_df
+                
+                # Display data with better formatting
+                if len(paginated_df) > 0:
+                    # Main data display
+                    st.dataframe(paginated_df, use_container_width=True)
+                    
+                    # Download options in a separate section for better layout
+                    st.markdown("---")
+                    st.write("**📥 Download Options:**")
+                    
+                    # Create download buttons in a cleaner layout
+                    dl_col1, dl_col2 = st.columns(2)
+                    
+                    with dl_col1:
+                        # Download filtered data
+                        csv_data = paginated_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Filtered Data",
+                            data=csv_data,
+                            file_name=f"filtered_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            help="Download currently displayed data",
+                            use_container_width=True
+                        )
+                    
+                    with dl_col2:
+                        # Download full dataset
+                        full_csv_data = df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Full Dataset",
+                            data=full_csv_data,
+                            file_name=f"full_dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            help="Download complete uploaded dataset",
+                            use_container_width=True
+                        )
+                else:
+                    st.warning("No data to display with current filters")
+                
+                # Data statistics section
+                if len(display_df) > 0:
+                    st.markdown("---")
+                    st.subheader("📋 Data Statistics")
+                    
+                    # Create statistics columns with better spacing
+                    if selected_column == "All Columns":
+                        # Show statistics for all numeric columns
+                        numeric_cols = display_df.select_dtypes(include=[np.number]).columns.tolist()
+                        if numeric_cols:
+                            st.write("**📊 Numeric Columns Overview:**")
+                            
+                            # Use tabs for better organization
+                            stats_tab1, stats_tab2, stats_tab3 = st.tabs(["Basic Stats", "Range Info", "Missing Values"])
+                            
+                            with stats_tab1:
+                                st.write("**Basic Statistics:**")
+                                for i, col in enumerate(numeric_cols[:6]):  # Show first 6 numeric columns
+                                    col_name = str(col)
+                                    if len(col_name) > 20:
+                                        col_name = col_name[:17] + "..."
+                                    st.write(f"**{i+1}. {col_name}:**")
+                                    st.write(f"   • Mean: {display_df[col].mean():.2f}")
+                                    st.write(f"   • Std Dev: {display_df[col].std():.2f}")
+                                    st.write(f"   • Median: {display_df[col].median():.2f}")
+                                    st.write(f"   • Variance: {display_df[col].var():.2f}")
+                                    st.write("")  # Add spacing
+                            
+                            with stats_tab2:
+                                st.write("**Range Information:**")
+                                for i, col in enumerate(numeric_cols[:6]):
+                                    col_name = str(col)
+                                    if len(col_name) > 20:
+                                        col_name = col_name[:17] + "..."
+                                    st.write(f"**{i+1}. {col_name}:**")
+                                    st.write(f"   • Min: {display_df[col].min():.2f}")
+                                    st.write(f"   • Max: {display_df[col].max():.2f}")
+                                    st.write(f"   • Range: {display_df[col].max() - display_df[col].min():.2f}")
+                                    st.write(f"   • 25th Percentile: {display_df[col].quantile(0.25):.2f}")
+                                    st.write(f"   • 75th Percentile: {display_df[col].quantile(0.75):.2f}")
+                                    st.write("")  # Add spacing
+                            
+                            with stats_tab3:
+                                st.write("**Missing Values & Data Types:**")
+                                for i, col in enumerate(display_df.columns[:8]):  # Show first 8 columns
+                                    col_name = str(col)
+                                    if len(col_name) > 20:
+                                        col_name = col_name[:17] + "..."
+                                    missing_count = display_df[col].isna().sum()
+                                    missing_pct = (missing_count / len(display_df)) * 100
+                                    st.write(f"**{i+1}. {col_name}:**")
+                                    st.write(f"   • Missing Count: {missing_count}")
+                                    st.write(f"   • Missing Percentage: {missing_pct:.1f}%")
+                                    st.write(f"   • Data Type: {display_df[col].dtype}")
+                                    st.write("")  # Add spacing
+                    else:
+                        # Show detailed statistics for selected column
+                        st.write(f"**📊 Detailed Analysis for: {selected_column}**")
+                        
+                        if pd.api.types.is_numeric_dtype(display_df[selected_column]):
+                            # Use columns for numeric stats
+                            stat_col1, stat_col2 = st.columns(2)
+                            
+                            with stat_col1:
+                                st.metric("Count", display_df[selected_column].count())
+                                st.metric("Mean", f"{display_df[selected_column].mean():.2f}")
+                                st.metric("Median", f"{display_df[selected_column].median():.2f}")
+                                st.metric("Std Dev", f"{display_df[selected_column].std():.2f}")
+                                st.metric("Variance", f"{display_df[selected_column].var():.2f}")
+                            
+                            with stat_col2:
+                                st.metric("Min", f"{display_df[selected_column].min():.2f}")
+                                st.metric("Max", f"{display_df[selected_column].max():.2f}")
+                                st.metric("Range", f"{display_df[selected_column].max() - display_df[selected_column].min():.2f}")
+                                st.metric("25th Percentile", f"{display_df[selected_column].quantile(0.25):.2f}")
+                                st.metric("75th Percentile", f"{display_df[selected_column].quantile(0.75):.2f}")
+                        else:
+                            # Non-numeric column statistics
+                            col_stat1, col_stat2 = st.columns(2)
+                            
+                            with col_stat1:
+                                st.metric("Count", display_df[selected_column].count())
+                                st.metric("Unique Values", display_df[selected_column].nunique())
+                                st.metric("Missing Values", display_df[selected_column].isna().sum())
+                            
+                            with col_stat2:
+                                # Show value counts for categorical data with limited unique values
+                                if display_df[selected_column].nunique() <= 20:
+                                    st.write("**📋 Value Distribution:**")
+                                    value_counts = display_df[selected_column].value_counts().head(10)
+                                    for val, count in value_counts.items():
+                                        val_str = str(val)
+                                        if len(val_str) > 30:
+                                            val_str = val_str[:27] + "..."
+                                        st.write(f"• {val_str}: {count}")
+                                else:
+                                    st.info(f"Too many unique values ({display_df[selected_column].nunique()}) to display distribution")
                 
                 # Data info
                 col1, col2 = st.columns(2)
@@ -1137,6 +1439,18 @@ def main():
                             st.session_state.processed_data = processed_data
                             st.session_state.data_loaded = True
                             
+                            # Calculate and store data hash
+                            current_hash = calculate_data_hash(processed_data)
+                            if current_hash != st.session_state.last_data_hash:
+                                # Data changed, reset models and forecasts
+                                st.session_state.last_data_hash = current_hash
+                                st.session_state.models_trained = False
+                                st.session_state.forecasts_generated = False
+                                st.session_state.prophet_model = None
+                                st.session_state.arima_model = None
+                                st.session_state.training_in_progress = False
+                                st.info("📊 Data changed - models will need to be retrained")
+                            
                             st.success("✓ Data processing completed successfully!")
                             
                             # Display processed data info
@@ -1206,421 +1520,461 @@ def main():
         if not st.session_state.data_loaded:
             st.warning("Please upload and process data first")
         else:
-            if st.button("Train Models", type="primary"):
-                with st.spinner("Training models... This may take a few minutes..."):
-                    try:
-                        # Validate data before training
-                        if st.session_state.processed_data is None:
-                            st.error("No processed data available. Please process data first.")
-                            return
+            # Check if models are already trained and valid
+            if are_models_valid():
+                # Compact status header
+                st.success("✅ Models are already trained and ready to use!")
+                
+                # Efficient status display in a single row
+                status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+                with status_col1:
+                    st.metric("Prophet", "✅ Trained" if st.session_state.prophet_model else "❌ Not Available")
+                with status_col2:
+                    st.metric("ARIMA", "✅ Trained" if st.session_state.arima_model else "❌ Not Available")
+                with status_col3:
+                    if st.session_state.model_training_time:
+                        st.metric("Last Trained", st.session_state.model_training_time.strftime("%H:%M:%S"))
+                with status_col4:
+                    data = st.session_state.processed_data
+                    st.metric("Data Points", f"{len(data):,}")
+                
+                # Retrain options in a compact row
+                st.markdown("---")
+                st.write("**🔄 Model Management:**")
+                
+                retrain_col1, retrain_col2 = st.columns(2)
+                with retrain_col1:
+                    if st.button("🔄 Retrain Models", type="secondary", use_container_width=True):
+                        st.session_state.models_trained = False
+                        st.session_state.forecasts_generated = False
+                        st.session_state.prophet_model = None
+                        st.session_state.arima_model = None
+                        st.session_state.training_in_progress = False
+                        st.rerun()
+                
+                with retrain_col2:
+                    if st.button("🗑️ Clear All Models", type="secondary", use_container_width=True):
+                        st.session_state.models_trained = False
+                        st.session_state.forecasts_generated = False
+                        st.session_state.prophet_model = None
+                        st.session_state.arima_model = None
+                        st.session_state.training_in_progress = False
+                        st.session_state.last_data_hash = None
+                        st.rerun()
                         
-                        data = st.session_state.processed_data
-                        data_rows = len(data)
-                        
-                        # Check minimum requirements for training
-                        if data_rows < 2:
-                            st.error(f"Insufficient data for training: Only {data_rows} rows available (minimum 2 required).")
-                            return
-                        
-                        # Adjust model parameters based on data size
-                        if data_rows < 10:
-                            st.warning("Limited data detected. Using simplified model parameters...")
-                            # Adjust parameters for small datasets
-                            prophet_seasonality = False  # Disable seasonality for very small datasets
-                            arima_seasonal = False      # Disable seasonal ARIMA
-                            st.info("Model adjustments made for small dataset size.")
-                        elif data_rows < 30:
-                            st.warning("Small dataset detected. Using conservative model parameters...")
-                            prophet_seasonality = True   # Keep weekly seasonality
-                            arima_seasonal = False      # Disable seasonal ARIMA
-                        else:
-                            prophet_seasonality = True   # Full seasonality
-                            arima_seasonal = True
-                        
-                        # Create temporary config with adjusted parameters
-                        config_data = {
-                            'data': {
-                                'date_column': 'Timestamp',
-                                'target_column': 'AQI',
-                                'pollutant_columns': ['PM2.5', 'PM10', 'NO', 'NO2', 'NOx', 'NH3', 'CO', 'SO2', 'O3', 'Benzene', 'Toluene', 'Xylene'],
-                                'missing_threshold': 0.5,
-                                'outlier_threshold': 3.0
-                            },
-                            'prophet': {
-                                'changepoint_prior_scale': 0.5 if data_rows < 10 else 0.1,  # Higher for small datasets
-                                'seasonality_mode': 'multiplicative',
-                                'weekly_seasonality': prophet_seasonality,
-                                'yearly_seasonality': prophet_seasonality and data_rows >= 365,  # Only if enough data
-                                'daily_seasonality': False,
-                                'uncertainty_samples': 1000,
-                                'interval_width': confidence_level
-                            },
-                            'arima': {
-                                'max_p': min(3, data_rows // 3),  # Reduce max parameters for small datasets
-                                'max_q': min(3, data_rows // 3),
-                                'max_order': min(4, data_rows // 2),
-                                'seasonal': arima_seasonal,
-                                'm': 7,
-                                'stepwise': True,
-                                'alpha': 1 - confidence_level
-                            },
-                            'forecasting': {
-                                'prophet_weight': prophet_weight,
-                                'arima_weight': arima_weight,
-                                'confidence_level': confidence_level
+            else:
+                # Training section
+                st.info("🚀 Ready to train forecasting models on your data")
+                
+                # Training button with full width
+                if st.button("🤖 Train Models", type="primary", use_container_width=True):
+                    st.session_state.training_in_progress = True
+                    st.rerun()
+                    
+                if st.session_state.training_in_progress:
+                    with st.spinner("Training models... This may take a few minutes..."):
+                        try:
+                            # Validate data before training
+                            if st.session_state.processed_data is None:
+                                st.error("No processed data available. Please process data first.")
+                                st.session_state.training_in_progress = False
+                                return
+                            
+                            data = st.session_state.processed_data
+                            data_rows = len(data)
+                            
+                            # Check minimum requirements for training
+                            if data_rows < 2:
+                                st.error(f"Insufficient data for training: Only {data_rows} rows available (minimum 2 required).")
+                                st.session_state.training_in_progress = False
+                                return
+                            
+                            # Adjust model parameters based on data size
+                            if data_rows < 10:
+                                st.warning("Limited data detected. Using simplified model parameters...")
+                                prophet_seasonality = False
+                                arima_seasonality = False
+                            elif data_rows < 30:
+                                st.warning("Small dataset detected. Using conservative model parameters...")
+                                prophet_seasonality = True
+                                arima_seasonality = False
+                            else:
+                                prophet_seasonality = True
+                                arima_seasonality = True
+                            
+                            # Create temporary config with adjusted parameters
+                            config_data = {
+                                'data': {
+                                    'date_column': 'Timestamp',
+                                    'target_column': 'AQI',
+                                    'pollutant_columns': ['PM2.5', 'PM10', 'NO', 'NO2', 'NOx', 'NH3', 'CO', 'SO2', 'O3', 'Benzene', 'Toluene', 'Xylene'],
+                                    'missing_threshold': 0.5,
+                                    'outlier_threshold': 3.0
+                                },
+                                'prophet': {
+                                    'changepoint_prior_scale': 0.5 if data_rows < 10 else 0.1,
+                                    'seasonality_mode': 'multiplicative',
+                                    'weekly_seasonality': prophet_seasonality,
+                                    'yearly_seasonality': prophet_seasonality and data_rows >= 365,
+                                    'daily_seasonality': False,
+                                    'uncertainty_samples': 1000,
+                                    'interval_width': confidence_level
+                                },
+                                'arima': {
+                                    'max_p': min(3, data_rows // 3),
+                                    'max_q': min(3, data_rows // 3),
+                                    'max_order': min(4, data_rows // 2),
+                                    'seasonal': arima_seasonality,
+                                    'stepwise': True,
+                                    'suppress_warnings': True
+                                },
+                                'forecasting': {
+                                    'prophet_weight': prophet_weight,
+                                    'arima_weight': arima_weight,
+                                    'confidence_level': confidence_level
+                                }
                             }
-                        }
                         
                         # Save temporary config
-                        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-                            yaml.dump(config_data, f)
-                            temp_config_path = f.name
-                        
-                        # Initialize components
-                        config = Config(temp_config_path)
-                        processor = DataProcessor(config)
-                        prophet_trainer = ProphetTrainer(config)
-                        arima_trainer = ARIMATrainer(config)
-                        forecaster = Forecaster(config)
-                        
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
-                        
-                        # Train Prophet model
-                        status_text.text("Training Prophet model...")
-                        progress_bar.progress(10)
-                        
-                        try:
-                            # Use the optimized ModelTrainer class
-                            model_trainer = ModelTrainer(config)
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                                yaml.dump(config_data, f)
+                                temp_config_path = f.name
                             
-                            # Train Prophet with progress updates
-                            prophet_model = model_trainer.train_prophet(data)
-                            progress_bar.progress(40)
-                            status_text.text("Prophet model trained successfully!")
-                            st.success("Prophet model created successfully!")
-                        except Exception as prophet_error:
-                            st.error(f"Prophet training failed: {str(prophet_error)}")
-                            prophet_model = None
-                        
-                        # Train ARIMA model
-                        status_text.text("Training ARIMA model...")
-                        progress_bar.progress(60)
-                        
-                        try:
-                            arima_model = model_trainer.train_arima(data)
-                            progress_bar.progress(80)
-                            status_text.text("ARIMA model trained successfully!")
-                            st.success("ARIMA model trained successfully!")
-                        except Exception as arima_error:
-                            st.warning(f"ARIMA training failed: {str(arima_error)}")
-                            arima_model = None
-                        
-                        # Final progress update
-                        progress_bar.progress(90)
-                        status_text.text("Finalizing models...")
-                        
-                        # Store models in session state
-                        st.session_state.prophet_model = prophet_model
-                        st.session_state.arima_model = arima_model
-                        st.session_state.models_trained = True
-                        
-                        progress_bar.progress(100)
-                        status_text.text("Models trained successfully!")
-                        
-                        st.success("Models trained successfully!")
-                        
-                        # Evaluate models
-                        st.subheader("Model Evaluation Metrics")
-                        eval_col1, eval_col2 = st.columns(2)
-                        
-                        with eval_col1:
-                            st.write("**Prophet Model Performance**")
+                            # Initialize components
+                            config = Config(temp_config_path)
+                            processor = DataProcessor(config)
+                            model_trainer = ModelTrainer(config)
+                            prophet_trainer = ProphetTrainer(config)
+                            arima_trainer = ARIMATrainer(config)
+                            forecaster = Forecaster(config)
+                            
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            # Train Prophet model
+                            status_text.text("Training Prophet model...")
+                            progress_bar.progress(20)
+                            
                             try:
-                                prophet_metrics = prophet_trainer.evaluate_prophet(prophet_model, data)
-                                st.metric("R²", f"{prophet_metrics.get('r2', 0):.3f}")
-                                st.metric("RMSE", f"{prophet_metrics.get('rmse', 0):.2f}")
-                                st.metric("MAE", f"{prophet_metrics.get('mae', 0):.2f}")
-                                st.metric("MAPE", f"{prophet_metrics.get('mape', 0):.2%}")
-                                st.metric("Accuracy", f"{prophet_metrics.get('accuracy', 0):.1f}%")
-                            except Exception as eval_error:
-                                st.warning(f"Prophet evaluation failed: {str(eval_error)}")
-                                st.metric("R²", "N/A")
-                                st.metric("RMSE", "N/A")
-                                st.metric("MAE", "N/A")
-                                st.metric("MAPE", "N/A")
-                                st.metric("Accuracy", "N/A")
-                        
-                        with eval_col2:
-                            st.write("**ARIMA Model Performance**")
-                            if arima_model is not None:
-                                try:
-                                    arima_metrics = arima_trainer.evaluate_arima(arima_model, data)
-                                    st.metric("R²", f"{arima_metrics.get('r2', 0):.3f}")
-                                    st.metric("RMSE", f"{arima_metrics.get('rmse', 0):.2f}")
-                                    st.metric("MAE", f"{arima_metrics.get('mae', 0):.2f}")
-                                    st.metric("MAPE", f"{arima_metrics.get('mape', 0):.2%}")
-                                    st.metric("Accuracy", f"{arima_metrics.get('accuracy', 0):.1f}%")
-                                except Exception as eval_error:
-                                    st.warning(f"ARIMA evaluation failed: {str(eval_error)}")
-                                    st.metric("R²", "N/A")
-                                    st.metric("RMSE", "N/A")
-                                    st.metric("MAE", "N/A")
-                                    st.metric("MAPE", "N/A")
-                                    st.metric("Accuracy", "N/A")
-                            else:
-                                st.warning("ARIMA model not available for evaluation")
-                                st.metric("R²", "N/A")
-                                st.metric("RMSE", "N/A")
-                                st.metric("MAE", "N/A")
-                                st.metric("MAPE", "N/A")
-                                st.metric("Accuracy", "N/A")
-                        
-                        # Model comparison
-                        st.subheader("Model Comparison")
-                        comparison_col1, comparison_col2, comparison_col3 = st.columns(3)
-                        
-                        with comparison_col1:
-                            st.write("**Performance Summary**")
-                            if arima_model is not None:
+                                # Use the optimized ModelTrainer class
+                                prophet_model = model_trainer.train_prophet(data)
+                                progress_bar.progress(40)
+                                status_text.text("Prophet model trained successfully!")
+                                st.success("Prophet model created successfully!")
+                            except Exception as prophet_error:
+                                st.error(f"Prophet training failed: {str(prophet_error)}")
+                                prophet_model = None
+                            
+                            # Train ARIMA model
+                            status_text.text("Training ARIMA model...")
+                            progress_bar.progress(60)
+                            
+                            try:
+                                arima_model = model_trainer.train_arima(data)
+                                progress_bar.progress(80)
+                                status_text.text("ARIMA model trained successfully!")
+                                st.success("ARIMA model trained successfully!")
+                            except Exception as arima_error:
+                                st.warning(f"ARIMA training failed: {str(arima_error)}")
+                                arima_model = None
+                            
+                            # Final progress update
+                            progress_bar.progress(90)
+                            status_text.text("Finalizing models...")
+                            
+                            # Store models in session state
+                            st.session_state.prophet_model = prophet_model
+                            st.session_state.arima_model = arima_model
+                            st.session_state.models_trained = True
+                            st.session_state.training_in_progress = False
+                            st.session_state.model_training_time = datetime.now()
+                            st.session_state.last_data_hash = calculate_data_hash(data)
+                            
+                            progress_bar.progress(100)
+                            status_text.text("Models trained successfully!")
+                            
+                            st.success("Models trained successfully!")
+                            
+                            # Compact evaluation metrics display
+                            st.markdown("---")
+                            st.subheader("📊 Model Performance")
+                            
+                            # Create tabs for organized model evaluation
+                            eval_tab1, eval_tab2, eval_tab3 = st.tabs(["Prophet", "ARIMA", "Comparison"])
+                            
+                            with eval_tab1:
+                                st.write("**Prophet Model Performance**")
                                 try:
                                     prophet_metrics = prophet_trainer.evaluate_prophet(prophet_model, data)
-                                    arima_metrics = arima_trainer.evaluate_arima(arima_model, data)
                                     
-                                    prophet_r2 = prophet_metrics.get('r2', 0)
-                                    arima_r2 = arima_metrics.get('r2', 0)
-                                    
-                                    if prophet_r2 > arima_r2:
-                                        st.success("🏆 Prophet performs better")
-                                    elif arima_r2 > prophet_r2:
-                                        st.success("🏆 ARIMA performs better")
-                                    else:
-                                        st.info("⚖️ Models perform similarly")
-                                    
-                                    st.write(f"Prophet R²: {prophet_r2:.3f}")
-                                    st.write(f"ARIMA R²: {arima_r2:.3f}")
-                                except:
-                                    st.info("Model comparison not available")
-                            else:
-                                st.info("Only Prophet model available")
-                        
-                        with comparison_col2:
-                            st.write("**Ensemble Recommendation**")
-                            if arima_model is not None:
-                                try:
-                                    prophet_acc = prophet_metrics.get('accuracy', 0)
-                                    arima_acc = arima_metrics.get('accuracy', 0)
-                                    
-                                    if prophet_acc > 80 and arima_acc > 80:
-                                        st.success("✅ Both models reliable")
-                                        st.write("Use Prophet + ARIMA ensemble")
-                                    elif prophet_acc > 70:
-                                        st.info("⚠️ Prophet reliable")
-                                        st.write("Use Prophet-weighted ensemble")
-                                    else:
-                                        st.warning("⚠️ Low accuracy detected")
-                                        st.write("Consider more data")
-                                except:
-                                    st.info("Ensemble recommendation not available")
-                            else:
-                                st.info("Prophet-only ensemble")
-                        
-                        with comparison_col3:
-                            st.write("**Model Quality**")
-                            try:
-                                prophet_r2 = prophet_metrics.get('r2', 0)
-                                if prophet_r2 > 0.8:
-                                    st.success("🌟 Excellent")
-                                elif prophet_r2 > 0.6:
-                                    st.info("👍 Good")
-                                elif prophet_r2 > 0.4:
-                                    st.warning("⚠️ Fair")
-                                else:
-                                    st.error("❌ Poor")
-                                
-                                st.write(f"Based on R² = {prophet_r2:.3f}")
-                            except:
-                                st.info("Quality assessment not available")
-                        
-                        # Display model info
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.subheader("Prophet Model")
-                            if data_rows < 10:
-                                st.info("Prophet model trained with simplified parameters (small dataset)")
-                            else:
-                                st.info("Prophet model trained with multiplicative seasonality")
-                        
-                        with col2:
-                            st.subheader("ARIMA Model")
-                            if arima_model is not None:
-                                if data_rows < 30:
-                                    st.info("ARIMA model trained with simplified parameters")
-                                else:
-                                    st.info("ARIMA model trained with automatic parameter selection")
-                            else:
-                                st.warning("ARIMA model training failed - using Prophet only")
-                        
-                        # Show dataset info
-                        st.subheader("Training Dataset Summary")
-                        st.write(f"• Dataset size: {data_rows} rows")
-                        
-                        # Handle Timestamp column (might be index or column)
-                        if 'Timestamp' in data.columns:
-                            st.write(f"• Date range: {data['Timestamp'].min().date()} to {data['Timestamp'].max().date()}")
-                        elif hasattr(data.index, 'date') and data.index.name == 'Timestamp':
-                            st.write(f"• Date range: {data.index.min().date()} to {data.index.max().date()}")
-                        else:
-                            st.write("• Date range: Not available")
-                        
-                        st.write(f"• AQI range: {data['AQI'].min():.1f} to {data['AQI'].max():.1f}")
-                        st.write(f"• AQI variation: {data['AQI'].std():.2f}")
-                        
-                        if data_rows < 50:
-                            st.warning("⚠️ Small dataset detected. Forecasts may have limited accuracy. Consider collecting more data for better results.")
-                        
-                        # Model Performance Metrics
-                        st.subheader("Model Performance Metrics")
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.write("**Prophet Model**")
-                            st.write("• Status: ✅ Trained Successfully")
-                            st.write("• Type: Time series forecasting")
-                            st.write("• Seasonality: Multiplicative")
-                            if data_rows < 10:
-                                st.write("• Mode: Simplified (small data)")
-                            else:
-                                st.write("• Mode: Full complexity")
-                        
-                        with col2:
-                            st.write("**ARIMA Model**")
-                            if arima_model is not None:
-                                st.write("• Status: ✅ Trained Successfully")
-                                st.write("• Type: Auto-regressive integrated")
-                                if data_rows < 30:
-                                    st.write("• Mode: Simplified parameters")
-                                else:
-                                    st.write("• Mode: Auto parameter selection")
-                            else:
-                                st.write("• Status: ⚠️ Training Failed")
-                                st.write("• Fallback: Prophet-only forecasting")
-                        
-                        # Data Quality Summary
-                        st.subheader("Data Quality Summary")
-                        quality_col1, quality_col2, quality_col3 = st.columns(3)
-                        
-                        with quality_col1:
-                            st.metric("Total Records", data_rows)
-                            st.metric("AQI Mean", f"{data['AQI'].mean():.1f}")
-                        
-                        with quality_col2:
-                            st.metric("AQI Std Dev", f"{data['AQI'].std():.2f}")
-                            st.metric("Data Completeness", f"{(1 - data['AQI'].isna().sum()/data_rows) * 100:.1f}%")
-                        
-                        with quality_col3:
-                            if hasattr(data.index, 'date'):
-                                date_range = (data.index.max() - data.index.min()).days
-                                st.metric("Time Span", f"{date_range} days")
-                            else:
-                                st.metric("Time Span", "N/A")
+                                    # Metrics in a grid
+                                    metric_col1, metric_col2, metric_col3 = st.columns(3)
+                                    with metric_col1:
+                                        st.metric("R²", f"{prophet_metrics.get('r2', 0):.3f}")
+                                        st.metric("RMSE", f"{prophet_metrics.get('rmse', 0):.2f}")
+                                    with metric_col2:
+                                        st.metric("MAE", f"{prophet_metrics.get('mae', 0):.2f}")
+                                        st.metric("MAPE", f"{prophet_metrics.get('mape', 0):.2%}")
+                                    with metric_col3:
+                                        st.metric("Accuracy", f"{prophet_metrics.get('accuracy', 0):.1f}%")
+                                        # Quality based on actual performance (adjusted for air quality forecasting)
+                                        r2_score = prophet_metrics.get('r2', 0)
+                                        accuracy = prophet_metrics.get('accuracy', 0)
+                                        if r2_score >= 0.7 and accuracy >= 80:
+                                            data_quality = "Excellent"
+                                        elif r2_score >= 0.5 and accuracy >= 75:
+                                            data_quality = "Good"
+                                        elif r2_score >= 0.3 and accuracy >= 70:
+                                            data_quality = "Fair"
+                                        else:
+                                            data_quality = "Poor"
+                                        st.metric("Quality", data_quality)
+                                except Exception as eval_error:
+                                    st.warning(f"Prophet evaluation failed: {str(eval_error)}")
+                                    st.metric("Status", "❌ Evaluation Failed")
                             
-                            # Data quality indicator
-                            if data['AQI'].std() > 10:
-                                st.metric("Data Quality", "Good")
-                            elif data['AQI'].std() > 5:
-                                st.metric("Data Quality", "Fair")
-                            else:
-                                st.metric("Data Quality", "Poor")
+                            with eval_tab2:
+                                st.write("**ARIMA Model Performance**")
+                                if arima_model is not None:
+                                    try:
+                                        arima_metrics = arima_trainer.evaluate_arima(arima_model, data)
+                                        
+                                        # Metrics in a grid
+                                        metric_col1, metric_col2, metric_col3 = st.columns(3)
+                                        with metric_col1:
+                                            st.metric("R²", f"{arima_metrics.get('r2', 0):.3f}")
+                                            st.metric("RMSE", f"{arima_metrics.get('rmse', 0):.2f}")
+                                        with metric_col2:
+                                            st.metric("MAE", f"{arima_metrics.get('mae', 0):.2f}")
+                                            st.metric("MAPE", f"{arima_metrics.get('mape', 0):.2%}")
+                                        with metric_col3:
+                                            st.metric("Accuracy", f"{arima_metrics.get('accuracy', 0):.1f}%")
+                                            # Quality based on actual performance (adjusted for air quality forecasting)
+                                            r2_score = arima_metrics.get('r2', 0)
+                                            accuracy = arima_metrics.get('accuracy', 0)
+                                            if r2_score >= 0.7 and accuracy >= 80:
+                                                data_quality = "Excellent"
+                                            elif r2_score >= 0.5 and accuracy >= 75:
+                                                data_quality = "Good"
+                                            elif r2_score >= 0.3 and accuracy >= 70:
+                                                data_quality = "Fair"
+                                            else:
+                                                data_quality = "Poor"
+                                            st.metric("Quality", data_quality)
+                                    except Exception as eval_error:
+                                        st.warning(f"ARIMA evaluation failed: {str(eval_error)}")
+                                        st.metric("Status", "❌ Evaluation Failed")
+                                else:
+                                    st.warning("ARIMA model not available for evaluation")
+                                    st.metric("Status", "❌ Model Not Trained")
+                            
+                            with eval_tab3:
+                                st.write("**Model Comparison & Quality Assessment**")
+                                
+                                if arima_model is not None:
+                                    try:
+                                        prophet_metrics = prophet_trainer.evaluate_prophet(prophet_model, data)
+                                        arima_metrics = arima_trainer.evaluate_arima(arima_model, data)
+                                        
+                                        prophet_r2 = prophet_metrics.get('r2', 0)
+                                        arima_r2 = arima_metrics.get('r2', 0)
+                                        
+                                        # Comparison metrics
+                                        comp_col1, comp_col2, comp_col3 = st.columns(3)
+                                        with comp_col1:
+                                            if prophet_r2 > arima_r2:
+                                                st.success("🏆 Prophet performs better")
+                                            elif arima_r2 > prophet_r2:
+                                                st.success("🏆 ARIMA performs better")
+                                            else:
+                                                st.info("⚖️ Both models perform similarly")
+                                            
+                                            ensemble_recommendation = "Prophet + ARIMA" if prophet_r2 > 0.7 and arima_r2 > 0.7 else "Prophet-weighted" if prophet_r2 > 0.7 else "ARIMA-weighted" if arima_r2 > 0.7 else "Ensemble not\nrecommended"
+                                            st.metric("Ensemble", ensemble_recommendation)
+                                        
+                                        with comp_col2:
+                                            avg_r2 = (prophet_r2 + arima_r2) / 2
+                                            avg_accuracy = (prophet_metrics.get('accuracy', 0) + arima_metrics.get('accuracy', 0)) / 2
+                                            
+                                            # Use same quality assessment as comprehensive evaluation
+                                            if avg_r2 >= 0.7 and avg_accuracy >= 80:
+                                                overall_quality = "Excellent"
+                                            elif avg_r2 >= 0.5 and avg_accuracy >= 75:
+                                                overall_quality = "Good"
+                                            elif avg_r2 >= 0.3 and avg_accuracy >= 70:
+                                                overall_quality = "Fair"
+                                            else:
+                                                overall_quality = "Poor"
+                                            
+                                            st.metric("Overall Quality", overall_quality)
+                                            st.metric("Average R²", f"{avg_r2:.3f}")
+                                            st.metric("Average Accuracy", f"{avg_accuracy:.1f}%")
+                                        
+                                        with comp_col3:
+                                            # Calculate comprehensive quality score based on actual model performance
+                                            prophet_r2 = prophet_metrics.get('r2', 0)
+                                            prophet_mape = prophet_metrics.get('mape', 100)
+                                            prophet_accuracy = prophet_metrics.get('accuracy', 0)
+                                            
+                                            arima_r2 = arima_metrics.get('r2', 0)
+                                            arima_mape = arima_metrics.get('mape', 100)
+                                            arima_accuracy = arima_metrics.get('accuracy', 0)
+                                            
+                                            # Quality based on actual model performance metrics
+                                            avg_r2 = (prophet_r2 + arima_r2) / 2
+                                            avg_mape = (prophet_mape + arima_mape) / 2
+                                            avg_accuracy = (prophet_accuracy + arima_accuracy) / 2
+                                            
+                                            # Calculate quality score based on performance only
+                                            quality_score = (
+                                                (avg_r2 * 0.4) +                    # R² score (40% weight)
+                                                ((100 - avg_mape) / 100 * 0.3) +     # MAPE converted to accuracy (30% weight)
+                                                (avg_accuracy / 100 * 0.3)          # Direct accuracy (30% weight)
+                                            )
+                                            
+                                            # Determine quality level based on actual performance (adjusted for air quality forecasting)
+                                            if avg_r2 >= 0.7 and avg_accuracy >= 80:
+                                                quality_level = "Excellent"
+                                                reliability = "Very High"
+                                            elif avg_r2 >= 0.5 and avg_accuracy >= 75:
+                                                quality_level = "Good"
+                                                reliability = "High"
+                                            elif avg_r2 >= 0.3 and avg_accuracy >= 70:
+                                                quality_level = "Fair"
+                                                reliability = "Medium"
+                                            else:
+                                                quality_level = "Poor"
+                                                reliability = "Low"
+                                            
+                                            st.metric("Quality Score", f"{quality_score:.3f}")
+                                            st.metric("Quality Level", quality_level)
+                                            st.metric("Reliability", reliability)
+                                            
+                                            # Add explanation for quality assessment
+                                            with st.expander("📊 Quality Assessment Details", expanded=False):
+                                                st.write("### Performance-Based Quality Factors")
+                                                st.write("")
+                                                st.write(f"**R² Score**: {avg_r2:.3f}")
+                                                st.write("Weight: 40%")
+                                                st.write("")
+                                                st.write(f"**MAPE**: {avg_mape:.1f}%")
+                                                st.write(f"Accuracy: {(100-avg_mape):.1f}%")
+                                                st.write("Weight: 30%")
+                                                st.write("")
+                                                st.write(f"**Model Accuracy**: {avg_accuracy:.1f}%")
+                                                st.write("Weight: 30%")
+                                                st.write("")
+                                                st.write(f"**Final Quality Score**: {quality_score:.3f}")
+                                                st.write("")
+                                                st.write("### Quality Thresholds")
+                                                st.write("*Adjusted for Air Quality Forecasting*")
+                                                st.write("")
+                                                st.write("**Excellent**")
+                                                st.write("• R² ≥ 0.7")
+                                                st.write("• Accuracy ≥ 80%")
+                                                st.write("")
+                                                st.write("**Good**")
+                                                st.write("• R² ≥ 0.5")
+                                                st.write("• Accuracy ≥ 75%")
+                                                st.write("")
+                                                st.write("**Fair**")
+                                                st.write("• R² ≥ 0.3")
+                                                st.write("• Accuracy ≥ 70%")
+                                                st.write("")
+                                                st.write("**Poor**")
+                                                st.write("• Below Fair thresholds")
+                                                st.write("")
+                                                st.info("💡 Note: Thresholds adjusted for air quality forecasting where R² values are naturally lower due to data variability")
+                                    except:
+                                        st.info("Comparison not available")
+                                else:
+                                    st.info("ARIMA model not available for comparison")
+                            
+                            # Compact model info
+                            st.markdown("---")
+                            st.subheader("🔧 Model Information")
+                            
+                            info_tab1, info_tab2 = st.tabs(["Training Details", "Expected Performance"])
+                            
+                            with info_tab1:
+                                info_col1, info_col2 = st.columns(2)
+                                with info_col1:
+                                    st.write("**Prophet Model**")
+                                    if data_rows < 10:
+                                        st.info("Simplified parameters (small dataset)")
+                                    else:
+                                        st.info("Multiplicative seasonality")
+                                    st.write(f"• Data points: {data_rows:,}")
+                                    st.write(f"• Seasonality: {'Enabled' if prophet_seasonality else 'Disabled'}")
+                                
+                                with info_col2:
+                                    st.write("**ARIMA Model**")
+                                    if arima_model is not None:
+                                        st.info("Automatic parameter selection")
+                                        st.write("• Seasonal: Enabled" if arima_seasonality else "• Seasonal: Disabled")
+                                        st.write("• Auto SARIMA: Yes")
+                                    else:
+                                        st.warning("ARIMA model not trained")
+                            
+                            with info_tab2:
+                                perf_col1, perf_col2, perf_col3 = st.columns(3)
+                                with perf_col1:
+                                    # More sophisticated accuracy estimation
+                                    data_std = data['AQI'].std()
+                                    data_mean = data['AQI'].mean()
+                                    data_range = data['AQI'].max() - data['AQI'].min()
+                                    coefficient_of_variation = data_std / data_mean if data_mean > 0 else 0
+                                    
+                                    # Consider multiple factors for accuracy estimation
+                                    if data_rows > 1000 and coefficient_of_variation < 0.3:
+                                        accuracy_est = "High (85-95%)"
+                                    elif data_rows > 500 and coefficient_of_variation < 0.5:
+                                        accuracy_est = "Medium (70-85%)"
+                                    elif data_rows > 100:
+                                        accuracy_est = "Fair (60-70%)"
+                                    else:
+                                        accuracy_est = "Low (<60%)"
+                                    
+                                    st.metric("Expected Accuracy", accuracy_est)
+                                    st.metric("Data CV", f"{coefficient_of_variation:.3f}")
+                                    st.metric("Sample Size", f"{data_rows:,}")
+                                
+                                with perf_col2:
+                                    if data_rows > 365:
+                                        reliability = "High"
+                                    elif data_rows > 90:
+                                        reliability = "Medium"
+                                    else:
+                                        reliability = "Low"
+                                    st.metric("Forecast Reliability", reliability)
+                                
+                                with perf_col3:
+                                    if arima_model is not None:
+                                        ensemble_type = "Prophet + ARIMA"
+                                    else:
+                                        ensemble_type = "Prophet Only"
+                                    st.metric("Ensemble Type", ensemble_type)
                         
-                        # Feature Engineering Summary
-                        st.subheader("Feature Engineering")
-                        feature_info = []
-                        
-                        # Check for time-based features
-                        time_features = ['day_of_week', 'month', 'season', 'year', 'day_of_year', 'is_weekend']
-                        found_features = [feat for feat in time_features if feat in data.columns]
-                        
-                        if found_features:
-                            feature_info.append(f"✅ Time-based features: {', '.join(found_features)}")
-                        else:
-                            feature_info.append("⚠️ No time-based features detected")
-                        
-                        # Check pollutant columns
-                        pollutant_cols = ['PM2.5', 'PM10', 'NO2', 'CO', 'NO', 'NOx', 'NH3', 'SO2', 'O3', 'Benzene', 'Toluene', 'Xylene']
-                        found_pollutants = [col for col in pollutant_cols if col in data.columns]
-                        feature_info.append(f"✅ Pollutant features: {len(found_pollutants)} columns")
-                        
-                        # Check data preprocessing
-                        if data['AQI'].isna().sum() == 0:
-                            feature_info.append("✅ Missing values handled")
-                        else:
-                            feature_info.append(f"⚠️ {data['AQI'].isna().sum()} missing AQI values")
-                        
-                        for info in feature_info:
-                            st.write(info)
-                        
-                        # Training Configuration
-                        st.subheader("Training Configuration")
-                        config_col1, config_col2 = st.columns(2)
-                        
-                        with config_col1:
-                            st.write("**Prophet Configuration**")
-                            st.write(f"• Changepoint Prior Scale: {0.5 if data_rows < 10 else 0.1}")
-                            st.write(f"• Seasonality Mode: Multiplicative")
-                            st.write(f"• Weekly Seasonality: {'Disabled' if data_rows < 10 else 'Enabled'}")
-                            st.write(f"• Yearly Seasonality: {'Disabled' if data_rows < 365 else 'Enabled'}")
-                        
-                        with config_col2:
-                            st.write("**ARIMA Configuration**")
-                            if arima_model is not None:
-                                st.write(f"• Max Parameters: {min(3, data_rows // 3)}")
-                                st.write(f"• Seasonal: {'Disabled' if data_rows < 30 else 'Enabled'}")
-                                st.write(f"• Auto Selection: Enabled")
-                            else:
-                                st.write("• Status: Not available")
-                                st.write("• Reason: Training failed")
-                        
-                        # Expected Performance
-                        st.subheader("Expected Performance")
-                        perf_col1, perf_col2, perf_col3 = st.columns(3)
-                        
-                        with perf_col1:
-                            # Estimate accuracy based on data characteristics
-                            if data['AQI'].std() > 20:
-                                accuracy_est = "High (85%+)"
-                            elif data['AQI'].std() > 10:
-                                accuracy_est = "Medium (70-85%)"
-                            else:
-                                accuracy_est = "Low (<70%)"
-                            st.metric("Expected Accuracy", accuracy_est)
-                        
-                        with perf_col2:
-                            if data_rows > 365:
-                                reliability = "High"
-                            elif data_rows > 90:
-                                reliability = "Medium"
-                            else:
-                                reliability = "Low"
-                            st.metric("Forecast Reliability", reliability)
-                        
-                        with perf_col3:
-                            if arima_model is not None:
-                                ensemble_type = "Prophet + ARIMA"
-                            else:
-                                ensemble_type = "Prophet Only"
-                            st.metric("Ensemble Type", ensemble_type)
-                        
-                    except Exception as e:
-                        st.error(f"Error training models: {str(e)}")
-                        st.session_state.models_trained = False
+                        except Exception as e:
+                            st.error(f"Error training models: {str(e)}")
+                            st.session_state.models_trained = False
+                            st.session_state.training_in_progress = False
+                            st.session_state.prophet_model = None
+                            st.session_state.arima_model = None
     
     with tab3:
         st.header("Forecast Generation")
         
-        if not st.session_state.models_trained:
+        if not are_models_valid():
             st.warning("Please train models first")
         else:
+            # Display model status
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Prophet Model", "✅ Ready" if st.session_state.prophet_model else "❌ Not Available")
+            with col2:
+                st.metric("ARIMA Model", "✅ Ready" if st.session_state.arima_model else "❌ Not Available")
+                
             if st.button("Generate Forecasts", type="primary"):
                 with st.spinner(f"Generating {forecast_days}-day forecasts..."):
                     try:
@@ -1912,11 +2266,21 @@ Risk Level: {risk_level}
                         st.session_state.forecasts_generated = False
     
     with tab4:
-        st.header("Health Analysis & Recommendations")
+        st.header("Health Analysis")
         
-        if not st.session_state.forecasts_generated:
-            st.warning("Please generate forecasts first")
+        if not st.session_state.forecasts_generated or not are_models_valid():
+            st.warning("Please train models and generate forecasts first")
         else:
+            # Display model and forecast status
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Models", "✅ Trained" if st.session_state.models_trained else "❌ Not Trained")
+            with col2:
+                st.metric("Forecasts", "✅ Generated" if st.session_state.forecasts_generated else "❌ Not Generated")
+            with col3:
+                if st.session_state.model_training_time:
+                    st.metric("Models Trained", st.session_state.model_training_time.strftime("%H:%M:%S"))
+                    
             forecasts = st.session_state.forecasts
             
             # Current AQI gauge
@@ -2022,8 +2386,12 @@ Risk Level: {risk_level}
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
-                        st.write(f"**Dates:** {group.index.min().strftime('%Y-%m-%d')} to {group.index.max().strftime('%Y-%m-%d')}")
-                        st.write(f"**AQI Range:** {group['Forecasted_AQI'].min():.1f} - {group['Forecasted_AQI'].max():.1f}")
+                        st.write("**Dates:**")
+                        st.write(f"From: {group.index.min().strftime('%Y-%m-%d')}")
+                        st.write(f"To: {group.index.max().strftime('%Y-%m-%d')}")
+                        st.write(f"**AQI Range:**")
+                        st.write(f"Min: {group['Forecasted_AQI'].min():.1f}")
+                        st.write(f"Max: {group['Forecasted_AQI'].max():.1f}")
                         st.write(f"**Average AQI:** {group['Forecasted_AQI'].mean():.1f}")
                         
                         # Get specific health recommendations

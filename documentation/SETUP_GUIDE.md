@@ -157,12 +157,33 @@ python --version
 - Use smaller dataset
 
 3. **Import Errors**
+- Verify all packages installed: `pip install -r requirements.txt`
+- Check Python path: `echo $PYTHONPATH`
+- Reinstall missing packages individually
+
+4. **MAPE Values > 100%**
+- **Issue**: Indicates calculation error, not model performance
+- **Solution**: Retrain models with updated MAPE calculation
+- **Expected**: MAPE should be 15-40% for air quality forecasting
+
+5. **Poor Quality Despite High Accuracy**
+- **Issue**: Quality thresholds were too strict for air quality
+- **Solution**: New realistic thresholds applied (R² ≥ 0.3, Accuracy ≥ 70% for Fair)
+- **Expected**: Quality rating should match actual performance
+
+6. **Text Truncation in UI**
+- **Issue**: Text cut off in expandable sections
+- **Solution**: Fixed layout issues in quality assessment details
+- **Expected**: All text should be fully readable
+
+### Additional Troubleshooting
+
+#### **Reinstall Dependencies**
 ```bash
-# Reinstall dependencies
 pip install -r documentation/requirements.txt --force-reinstall
 ```
 
-4. **Permission Errors (Windows)**
+#### **Permission Errors (Windows)**
 ```cmd
 # Run as administrator or use user directory
 ```

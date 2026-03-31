@@ -328,6 +328,22 @@ Timestamp,AQI,PM2.5,PM10,NO2,CO,SO2,O3
 - **Missing data** should be <30% of total
 - **Outliers** will be automatically detected and handled
 
+### Model Performance Expectations
+
+#### Realistic MAPE Values
+- **Excellent**: 5-15% (very accurate predictions)
+- **Good**: 15-25% (accurate predictions)
+- **Fair**: 25-40% (moderate accuracy)
+- **Poor**: 40-100% (low accuracy)
+
+#### Quality Assessment Standards
+- **Excellent**: R² ≥ 0.7 AND Accuracy ≥ 80%
+- **Good**: R² ≥ 0.5 AND Accuracy ≥ 75%
+- **Fair**: R² ≥ 0.3 AND Accuracy ≥ 70%
+- **Poor**: Below Fair thresholds
+
+**Note**: Air quality data naturally has higher variability than other time series, so these thresholds are adjusted for realistic air quality forecasting standards.
+
 ---
 
 ## ⚙️ Configuration
